@@ -164,6 +164,7 @@ EnumStringMap<DumpVariable> varDescMap
 	DumpVscloc,         "Self-consistent potential",
 	DumpBandEigs,       "Band Eigenvalues",
 	DumpBandProjections,"Projections of each band state against each atomic orbital",
+	DumpProjectionOverlap, "Projections of each atomic orbital to each atomic orbital",
 	DumpEigStats,       "Band eigenvalue statistics: HOMO, LUMO, min, max and Fermi level",
 	DumpFillings,       "Fillings",
 	DumpRhoAtom,        "Atomic-orbital projected density matrices (only for species with +U enabled)",
