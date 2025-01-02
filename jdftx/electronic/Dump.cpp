@@ -274,7 +274,7 @@ void Dump::operator()(DumpFrequency freq, int iter)
 
 	if(ShouldDump(ProjectionOverlap) && isCevec)
 	{	StartDump("projectionOverlap")
-		dumpProjectionOverlap(*e, fname.c_str(), bandProjectionOrtho, bandProjectionNorm);
+		dumpProjectionOverlap(*e, fname.c_str());
 		EndDump
 	}
 	

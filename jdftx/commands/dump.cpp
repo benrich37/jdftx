@@ -101,6 +101,7 @@ EnumStringMap<DumpVariable> varMap
 	DumpVscloc, "Vscloc",
 	DumpBandEigs, "BandEigs",
 	DumpBandProjections, "BandProjections",
+	DumpProjectionOverlap, "ProjectionOverlap",
 	DumpEigStats, "EigStats",
 	DumpFillings, "Fillings",
 	DumpRhoAtom, "RhoAtom",

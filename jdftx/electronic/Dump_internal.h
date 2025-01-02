@@ -68,7 +68,7 @@ namespace XC_Analysis
 void dumpProjections(const Everything& e, const char* filename, bool ortho, bool norm);
 
 //! Dump projections between atomic orbitals or ortho-orbitals depending on ortho, and complex or real based on norm
-void dumpProjectionOverlap(const Everything& e, const char* filename, bool ortho, bool norm);
+void dumpProjectionOverlap(const Everything& e, const char* filename);
 
 //---------------- Implemented in DumpChargedDefects.cpp -----------------
 

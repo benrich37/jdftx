@@ -703,7 +703,7 @@ void dumpProjections(const Everything& e, const char* filename, bool ortho, bool
 	if(mpiWorld->isHead()) fclose(fp);
 }
 
-void dumpProjectionOverlap(const Everything& e, const char* filename, bool ortho, bool norm)
+void dumpProjectionOverlap(const Everything& e, const char* filename)
 {	const ElecInfo& eInfo = e.eInfo;
 	const IonInfo& iInfo = e.iInfo;
 	
@@ -712,16 +712,7 @@ void dumpProjectionOverlap(const Everything& e, const char* filename, bool ortho
 	{	matrix overlap; //orbitals: nOrbitals x nOrbitals
 		if(eInfo.isMine(q))
 		{	ColumnBundle psi = iInfo.getAtomicOrbitals(q, false);
-			if(ortho)
-			{	ColumnBundle Opsi = O(psi);
-				matrix orthoMat = invsqrt(psi ^ Opsi); //orthonormalizing matrix
-				psi = psi * orthoMat;
-				Opsi = Opsi * orthoMat;
-				overlap = psi ^ Opsi;
-			}
-			else
-			{	overlap = psi ^ O(psi);
-			}
+			overlap = psi ^ O(psi);
 			if(not mpiWorld->isHead()) mpiWorld->sendData(overlap, 0, q); //send to head for writing
 		}
 		if(mpiWorld->isHead())
@@ -735,17 +726,7 @@ void dumpProjectionOverlap(const Everything& e, const char* filename, bool ortho
 			mpiWorld->fseek(fp, q*nOrbitals*nOrbitals*sizeof(complex), SEEK_SET);
 			//Write overlaps:
 			complex* overlapData = overlap.data();
-			if(norm)
-			{	//Write only magnitudes:
-				std::vector<double> normData(nOrbitals * nOrbitals);
-				for(int i=0; i<nOrbitals*nOrbitals; i++)
-					normData[i] = overlapData[i].norm();
-				mpiWorld->fwrite(normData.data(), sizeof(double), nOrbitals*nOrbitals, fp);
-			}
-			else
-			{	//Write complex overlaps:
-				mpiWorld->fwrite(overlapData, sizeof(complex), nOrbitals*nOrbitals, fp);
-			}
+			mpiWorld->fwrite(overlapData, sizeof(complex), nOrbitals*nOrbitals, fp);
 			mpiWorld->fclose(fp);
 		}
 	}
