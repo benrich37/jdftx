@@ -706,28 +706,18 @@ void dumpProjections(const Everything& e, const char* filename, bool ortho, bool
 void dumpProjectionOverlap(const Everything& e, const char* filename)
 {	const ElecInfo& eInfo = e.eInfo;
 	const IonInfo& iInfo = e.iInfo;
+
+	// Calculate overlap at arbitrary k-point:
+	matrix overlap; 
+	ColumnBundle psi = iInfo.getAtomicOrbitals(eInfo.qStart, false);
+	overlap = psi ^ O(psi);
+	complex* overlapData = overlap.data();
+	//Write overlaps to binary file:
+	MPIUtil::File fp; mpiWorld->fopenWrite(fp, filename);
+	mpiWorld->fseek(fp, 0, SEEK_SET);
+	int nOrbitals = iInfo.nAtomicOrbitals();
+	mpiWorld->fwrite(overlapData, sizeof(complex), nOrbitals*nOrbitals, fp);
+	mpiWorld->fclose(fp);
 	
-	//Calculate overlaps at first k-point:
-	for(int q=eInfo.qStart; q<eInfo.qStart+1; q++)
-	{	matrix overlap; //orbitals: nOrbitals x nOrbitals
-		if(eInfo.isMine(q))
-		{	ColumnBundle psi = iInfo.getAtomicOrbitals(q, false);
-			overlap = psi ^ O(psi);
-			if(not mpiWorld->isHead()) mpiWorld->sendData(overlap, 0, q); //send to head for writing
-		}
-		if(mpiWorld->isHead())
-		{	if(not eInfo.isMine(q)) //recv from process that stored q
-			{	overlap.init(iInfo.nAtomicOrbitals(), iInfo.nAtomicOrbitals());
-				mpiWorld->recvData(overlap, eInfo.whose(q), q);
-			}
-			//Write overlaps to binary file:
-			MPIUtil::File fp; mpiWorld->fopenWrite(fp, filename);
-			int nOrbitals = iInfo.nAtomicOrbitals();
-			mpiWorld->fseek(fp, q*nOrbitals*nOrbitals*sizeof(complex), SEEK_SET);
-			//Write overlaps:
-			complex* overlapData = overlap.data();
-			mpiWorld->fwrite(overlapData, sizeof(complex), nOrbitals*nOrbitals, fp);
-			mpiWorld->fclose(fp);
-		}
-	}
+	
 }
