@@ -707,8 +707,8 @@ void dumpProjectionOverlap(const Everything& e, const char* filename)
 {	const ElecInfo& eInfo = e.eInfo;
 	const IonInfo& iInfo = e.iInfo;
 	
-	//Calculate overlaps for each k-point:
-	for(int q=eInfo.qStart; q<eInfo.qStop; q++)
+	//Calculate overlaps at first k-point:
+	for(int q=eInfo.qStart; q<eInfo.qStart+1; q++)
 	{	matrix overlap; //orbitals: nOrbitals x nOrbitals
 		if(eInfo.isMine(q))
 		{	ColumnBundle psi = iInfo.getAtomicOrbitals(q, false);
