@@ -704,12 +704,10 @@ void dumpProjections(const Everything& e, const char* filename, bool ortho, bool
 }
 
 void dumpProjectionOverlap(const Everything& e, const char* filename)
-{	const ElecInfo& eInfo = e.eInfo;
-	const IonInfo& iInfo = e.iInfo;
-
+{	const IonInfo& iInfo = e.iInfo;
 	// Calculate overlap at arbitrary k-point:
 	matrix overlap; 
-	ColumnBundle psi = iInfo.getAtomicOrbitals(eInfo.qStart, false);
+	ColumnBundle psi = iInfo.getAtomicOrbitals(0, false);
 	overlap = psi ^ O(psi);
 	complex* overlapData = overlap.data();
 	//Write overlaps to binary file:
@@ -718,6 +716,4 @@ void dumpProjectionOverlap(const Everything& e, const char* filename)
 	int nOrbitals = iInfo.nAtomicOrbitals();
 	mpiWorld->fwrite(overlapData, sizeof(complex), nOrbitals*nOrbitals, fp);
 	mpiWorld->fclose(fp);
-	
-	
 }
