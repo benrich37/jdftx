@@ -653,6 +653,7 @@ void IonInfo::pairPotentialsAndGrad(Energies* ener, IonicGradient* forces, matri
 		//Report external contribution to forces if any:
 		if(ionicGaussianPotentials.size())
 		{	IonicGradient forcesExtIonic = (*forces) - forcesNoExt;
+			fprintf(globalLog, "\n");//Ensure an empty line precedes the force breakdown
 			forcesExtIonic.print(*e, globalLog, "forceExtIonic");
 		}
 	}
