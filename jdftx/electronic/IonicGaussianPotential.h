@@ -38,4 +38,21 @@ struct IonicGaussianPotential
 	double energyAndGrad(const GridInfo& gInfo, std::vector<Atom>& atoms, matrix3<>* E_RRTptr) const;
 };
 
+struct DynamicPlanarGaussianPotential
+{
+	int iSpecies; //!< which species it applies to
+	double U0; //!< peak amplitude in Hartrees
+	double sigma; //!< width (standard deviation) in bohrs
+	vector3<> center; //!< center of the Gaussian potential in reduced coordinates (0.5,0.5,0.5) is center of cell (updates during simulation)
+	double zmin, zmax; //!< bounds for where the center z-coordinate may move (in reduced coordinates)
+	double target_fz; //!< target force on the center in z-direction (in Hartrees/bohr)
+
+	DynamicPlanarGaussianPotential() : iSpecies(-1), U0(0.), sigma(0.) {}
+
+	//Compute energy and accumulate forces, and optionally stresses, due to external potential:
+	double cum_force_z(const GridInfo& gInfo, std::vector<Atom>& atoms, matrix3<>* E_RRTptr, vector3<>* center) const;
+	void update_center(const vector3<>& newCenter) { center = newCenter; }
+	double energyAndGrad(const GridInfo& gInfo, std::vector<Atom>& atoms, matrix3<>* E_RRTptr) const;
+};
+
 #endif // JDFTX_ELECTRONIC_IONIC_GAUSSIAN_POTENTIAL_H
