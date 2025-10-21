@@ -44,8 +44,7 @@ struct DynamicPlanarGaussianPotential
 	double U0; //!< peak amplitude in Hartrees
 	double sigma; //!< width (standard deviation) in bohrs
 	vector3<> center; //!< center of the Gaussian potential in reduced coordinates (0.5,0.5,0.5) is center of cell (updates during simulation)
-	double zmin, zmax; //!< bounds for where the center z-coordinate may move (in reduced coordinates)
-	double target_fz; //!< target force on the center in z-direction (in Hartrees/bohr)
+	double targetFz; //!< target force on the center in z-direction (in Hartrees/bohr)
 
 	DynamicPlanarGaussianPotential() : iSpecies(-1), U0(0.), sigma(0.) {}
 

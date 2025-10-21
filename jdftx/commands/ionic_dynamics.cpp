@@ -305,18 +305,8 @@ commandIonicGaussianPotential;
 struct CommandDynamicPlanarGaussianPotential : public Command
 {
 	CommandDynamicPlanarGaussianPotential() : Command("dynamic-planar-gaussian-potential", "jdftx/Ionic/Optimization")
-	{	format = "<species> <U0> <sigma> <geometry>";
-		comments = "Apply external potential and forces to ions of specified <species>.\n"
-			"The potential is Gaussian with peak value <U0> Hartrees and standard\n"
-			"deviation <sigma> bohrs, and is always centered at the origin. The symmetry\n"
-			"of the potential is specified by <geometry>, which may be one of:\n"
-			"+ Spherical: The potential is 0-D and confined near the origin.\n"
-			"+ Cylindrical: The potential is 1-D and extends along the z-direction.\n"
-			"+ Planar: The potential is 2-D and extends in the xy-plane.\n"
-			"\n"
-			"Note that the coordinates of the atoms are taken in minimum-image convention\n"
-			"for the unit cell centered at the origin for the potential and force calculation.\n"
-			"This command is intended primarily for applying perturbations in ionic dynamics.";
+	{	format = "<species> <U0> <sigma> <target-fz> <center x <x> y <y> z <z>>";
+		comments = "TODO\n";
 		allowMultiple = true;
 		require("ion");
 		//Dependencies to ensure 'center' is interpreted in correct coordinate system:
@@ -325,11 +315,11 @@ struct CommandDynamicPlanarGaussianPotential : public Command
 	}
 
 	void process(ParamList& pl, Everything& e)
-	{	IonicGaussianPotential igp;
+	{	DynamicPlanarGaussianPotential igp;
 		igp.iSpecies = getSpecies(pl, e);
 		pl.get(igp.U0, 0.0, "U0", true);
 		pl.get(igp.sigma, 0.0, "sigma", true);
-		pl.get(igp.geometry, IonicGaussianPotential::Planar, igpGeometryMap, "geometry", true);
+		pl.get(igp.targetFz, -1.0, "target-fz", true);
 		vector3<> center(0.0, 0.0, 0.0);
 		string key;
 		pl.get(key, string(), "center", false);
@@ -342,11 +332,11 @@ struct CommandDynamicPlanarGaussianPotential : public Command
 		if(e.iInfo.coordsType == CoordsCartesian)
 			center = inv(e.gInfo.R) * center;
 		igp.center = center;
-		e.iInfo.ionicGaussianPotentials.push_back(igp);
+		e.iInfo.dynamicPlanarGaussianPotentials.push_back(igp);
 	}
 
 	void printStatus(Everything& e, int iRep)
-	{	const IonicGaussianPotential& igp = e.iInfo.ionicGaussianPotentials[iRep];
+	{	const DynamicPlanarGaussianPotential& igp = e.iInfo.DynamicPlanarGaussianPotential[iRep];
 		vector3<> center = igp.center;
 		if(e.iInfo.coordsType == CoordsCartesian)
 			center = e.gInfo.R * center; //report cartesian positions
@@ -354,7 +344,7 @@ struct CommandDynamicPlanarGaussianPotential : public Command
 			igp.U0, igp.sigma, igpGeometryMap.getString(igp.geometry), center[0], center[1], center[2]);
 	}
 }
-commandIonicGaussianPotential;
+commandDynamicPlanarGaussianPotential;
 
 
 struct CommandMetadynamicsBond : public Command
