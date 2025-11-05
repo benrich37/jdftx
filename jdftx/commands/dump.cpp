@@ -690,7 +690,7 @@ struct CommandVibrations : public Command
 		logPrintf("\\\n\tomegaMin %g", e.vibrations->omegaMin);
 		logPrintf("\\\n\tT %g", e.vibrations->T/Kelvin);
 		logPrintf("\\\n\tomegaResolution %g", e.vibrations->omegaResolution);
-		logPrintf("\\\n\tdumpK %s", e.vibrations->dumpK);
+		logPrintf("\\\n\tdumpK %s", boolMap.getString(e.vibrations->dumpK));
 	}
 }
 commandVibrations;
