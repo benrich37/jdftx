@@ -391,12 +391,12 @@ void Vibrations::calculate()
 	// Dump force matrix K if requested
 	if(dumpK)
 	{	string fname = e->dump.getFilename("K");
-		logPrintf("\nDumping force matrix K to '%s' ... ", fname.c_str()); logFlush();
+		logPrintf("\nWriting force matrix K to '%s' ... ", fname.c_str()); logFlush();
 		FILE* fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
 		K.write(fp);
 		fclose(fp);
-		logPrintf("done.\n");
+		// logPrintf("done.\n");
 		// int nRows = K.nRows(), nCols = K.nCols();
 		// fwrite(&nRows, sizeof(int), 1, fp);
 		// fwrite(&nCols, sizeof(int), 1, fp);
