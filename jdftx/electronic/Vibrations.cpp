@@ -289,8 +289,22 @@ void Vibrations::calculate()
 				nProjectors++;
 			}
 	}
+	if(dumpK)
+	{	string fname = e->dump.getFilename("K0");
+		logPrintf("\nWriting unprojected force matrix K0 to '%s' ... ", fname.c_str()); logFlush();
+		FILE* fp = fopen(fname.c_str(), "wb");
+		if(!fp) die("Error opening file for writing.\n");
+		K.write(fp);
+		fclose(fp);
+	}
 	if(nProjectors)
 	{	projector = projector(0,nModes, 0,nProjectors); //discard empty columns
+		string fname = e->dump.getFilename("projector0");
+		logPrintf("\nWriting non-orthonormal projectors to '%s' ... ", fname.c_str()); logFlush();
+		FILE* fp = fopen(fname.c_str(), "wb");
+		if(!fp) die("Error opening file for writing.\n");
+		projector.write(fp);
+		fclose(fp);
 		projector = projector * invsqrt(dagger(projector)*projector); //orthonormalize
 		matrix ppDag = projector * dagger(projector);
 		K -= ppDag * K * ppDag;
@@ -403,6 +417,14 @@ void Vibrations::calculate()
 		FILE* fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
 		projector.write(fp);
+		fclose(fp);
+	}
+	if(dumpK)
+	{	string fname = e->dump.getFilename("ppDag");
+		logPrintf("\nWriting ppDag to '%s' ... ", fname.c_str()); logFlush();
+		FILE* fp = fopen(fname.c_str(), "wb");
+		if(!fp) die("Error opening file for writing.\n");
+		ppDag.write(fp);
 		fclose(fp);
 	}
 	
