@@ -289,16 +289,16 @@ void Vibrations::calculate()
 				nProjectors++;
 			}
 	}
+	matrix K0 = K;
 	if(dumpK)
 	{	string fname = e->dump.getFilename("K0");
 		logPrintf("\nWriting unprojected force matrix K0 to '%s' ... ", fname.c_str()); logFlush();
 		FILE* fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
-		matrix K0 = zeroes(nModes, nModes);
-		K0 += K;
 		K0.write(fp);
 		fclose(fp);
 	}
+	
 	if(nProjectors)
 	{	projector = projector(0,nModes, 0,nProjectors); //discard empty columns
 		string fname = e->dump.getFilename("projector0");
@@ -307,8 +307,9 @@ void Vibrations::calculate()
 		if(!fp) die("Error opening file for writing.\n");
 		projector.write(fp);
 		fclose(fp);
-		projector = projector * invsqrt(dagger(projector)*projector); //orthonormalize
-		matrix ppDag = projector * dagger(projector);
+		matrix oprojector = projector * invsqrt(dagger(projector)*projector); //orthonormalize
+		// projector = projector * invsqrt(dagger(projector)*projector); //orthonormalize
+		matrix ppDag = oprojector * dagger(oprojector);
 		K -= ppDag * K * ppDag;
 		//dP -= ppDag * dP;
 		logPrintf("Projected out %d rotation+translation modes\n", nProjectors);
@@ -435,8 +436,9 @@ void Vibrations::calculate()
 		logPrintf("\nWriting overlap to '%s' ... ", fname.c_str()); logFlush();
 		FILE* fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
-		matrix ppDag = projector * dagger(projector);
-		matrix overlap = ppDag * K * ppDag;
+		matrix oprojector = projector * invsqrt(dagger(projector)*projector);
+		matrix ppDag = oprojector * dagger(oprojector);
+		matrix overlap = ppDag * K0 * ppDag;
 		ppDag.write(fp);
 		fclose(fp);
 	}
