@@ -396,6 +396,13 @@ void Vibrations::calculate()
 		if(!fp) die("Error opening file for writing.\n");
 		K.write(fp);
 		fclose(fp);
+		//
+		string fname = e->dump.getFilename("projector");
+		logPrintf("\nWriting projectors to '%s' ... ", fname.c_str()); logFlush();
+		FILE* fp = fopen(fname.c_str(), "wb");
+		if(!fp) die("Error opening file for writing.\n");
+		projector.write(fp);
+		fclose(fp);
 		// logPrintf("done.\n");
 		// int nRows = K.nRows(), nCols = K.nCols();
 		// fwrite(&nRows, sizeof(int), 1, fp);
