@@ -294,7 +294,9 @@ void Vibrations::calculate()
 		logPrintf("\nWriting unprojected force matrix K0 to '%s' ... ", fname.c_str()); logFlush();
 		FILE* fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
-		K.write(fp);
+		matrix K0 = zeroes(nModes, nModes);
+		K0 += K;
+		K0.write(fp);
 		fclose(fp);
 	}
 	if(nProjectors)
@@ -425,6 +427,16 @@ void Vibrations::calculate()
 		FILE* fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
 		matrix ppDag = projector * dagger(projector);
+		ppDag.write(fp);
+		fclose(fp);
+	}
+	if(dumpK)
+	{	string fname = e->dump.getFilename("overlap");
+		logPrintf("\nWriting overlap to '%s' ... ", fname.c_str()); logFlush();
+		FILE* fp = fopen(fname.c_str(), "wb");
+		if(!fp) die("Error opening file for writing.\n");
+		matrix ppDag = projector * dagger(projector);
+		matrix overlap = ppDag * K * ppDag;
 		ppDag.write(fp);
 		fclose(fp);
 	}
