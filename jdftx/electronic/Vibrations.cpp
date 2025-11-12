@@ -298,17 +298,6 @@ void Vibrations::calculate()
 		K0.write(fp);
 		fclose(fp);
 	}
-	if(dumpK)
-	{	string fname = e->dump.getFilename("overlap");
-		logPrintf("\nWriting overlap to '%s' ... ", fname.c_str()); logFlush();
-		FILE* fp = fopen(fname.c_str(), "wb");
-		if(!fp) die("Error opening file for writing.\n");
-		matrix oprojector = projector * invsqrt(dagger(projector)*projector);
-		matrix ppDag = oprojector * dagger(oprojector);
-		matrix overlap = ppDag * K0 * ppDag;
-		ppDag.write(fp);
-		fclose(fp);
-	}
 	
 	if(nProjectors)
 	{	projector = projector(0,nModes, 0,nProjectors); //discard empty columns
@@ -442,17 +431,17 @@ void Vibrations::calculate()
 		ppDag.write(fp);
 		fclose(fp);
 	}
-	// if(dumpK)
-	// {	string fname = e->dump.getFilename("overlap");
-	// 	logPrintf("\nWriting overlap to '%s' ... ", fname.c_str()); logFlush();
-	// 	FILE* fp = fopen(fname.c_str(), "wb");
-	// 	if(!fp) die("Error opening file for writing.\n");
-	// 	matrix oprojector = projector * invsqrt(dagger(projector)*projector);
-	// 	matrix ppDag = oprojector * dagger(oprojector);
-	// 	matrix overlap = ppDag * K0 * ppDag;
-	// 	ppDag.write(fp);
-	// 	fclose(fp);
-	// }
+	if(dumpK)
+	{	string fname = e->dump.getFilename("overlap");
+		logPrintf("\nWriting overlap to '%s' ... ", fname.c_str()); logFlush();
+		FILE* fp = fopen(fname.c_str(), "wb");
+		if(!fp) die("Error opening file for writing.\n");
+		matrix oprojector = projector * invsqrt(dagger(projector)*projector);
+		matrix ppDag = oprojector * dagger(oprojector);
+		matrix overlap = ppDag * K0 * ppDag;
+		ppDag.write(fp);
+		fclose(fp);
+	}
 	
 	logPrintf("\n");
 }
