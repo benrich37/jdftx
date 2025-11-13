@@ -486,7 +486,7 @@ vector3<> Vibrations::getSplit() const
 		split[k] -= floor(split[k]); //map to [0,1)
 	}
 	if(dumpK)
-		matrix splitMat(3,1);
+	{	matrix splitMat(3,1);
 		for(int k=0; k<3; k++)
 			splitMat.set(k,0, split[k]);
 		string fname = e->dump.getFilename("split");
