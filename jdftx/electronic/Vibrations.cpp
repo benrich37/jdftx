@@ -270,10 +270,10 @@ void Vibrations::calculate()
 		if(dumpK)
 		{	string fname = e->dump.getFilename("CMcoords");
 			logPrintf("\nWriting center-of-mass coordinates to '%s' ... ", fname.c_str()); logFlush();
-			FILE* fp = fopen(fname.c_str(), "wb");
-			if(!fp) die("Error opening file for writing.\n");
-			r.write(fp);
-			fclose(fp);
+			// FILE* fp = fopen(fname.c_str(), "wb");
+			// if(!fp) die("Error opening file for writing.\n");
+			r.write(fname);
+			// fclose(fp);
 		}
 		//Compute inertia tensor:
 		matrix3<> I;
@@ -287,7 +287,8 @@ void Vibrations::calculate()
 			logPrintf("\nWriting inertia tensor to '%s' ... ", fname.c_str()); logFlush();
 			FILE* fp = fopen(fname.c_str(), "wb");
 			if(!fp) die("Error opening file for writing.\n");
-			I.write(fp);
+			matrix Imat(3,3); for(int j=0; j<3; j++) for(int k=0; k<3; k++) Imat.set(j,k, I(j,k));
+			Imat.write(fp);
 			fclose(fp);
 		}
 		//Get principal axis and moments:
