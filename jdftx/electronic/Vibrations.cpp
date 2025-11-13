@@ -419,7 +419,8 @@ void Vibrations::calculate()
 		logPrintf("\nWriting projectors to '%s' ... ", fname.c_str()); logFlush();
 		FILE* fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
-		projector.write(fp);
+		matrix oprojector = projector * invsqrt(dagger(projector)*projector);
+		oprojector.write(fp);
 		fclose(fp);
 	}
 	if(dumpK)
@@ -427,7 +428,8 @@ void Vibrations::calculate()
 		logPrintf("\nWriting ppDag to '%s' ... ", fname.c_str()); logFlush();
 		FILE* fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
-		matrix ppDag = projector * dagger(projector);
+		matrix oprojector = projector * invsqrt(dagger(projector)*projector);
+		matrix ppDag = oprojector * dagger(oprojector);
 		ppDag.write(fp);
 		fclose(fp);
 	}
