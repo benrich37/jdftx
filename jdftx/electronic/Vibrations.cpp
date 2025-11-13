@@ -267,12 +267,28 @@ void Vibrations::calculate()
 	}
 	if(rotationSym)
 	{	IonicGradient r = getCMcoords();
+		if(dumpK)
+		{	string fname = e->dump.getFilename("CMcoords");
+			logPrintf("\nWriting center-of-mass coordinates to '%s' ... ", fname.c_str()); logFlush();
+			FILE* fp = fopen(fname.c_str(), "wb");
+			if(!fp) die("Error opening file for writing.\n");
+			r.write(fp);
+			fclose(fp);
+		}
 		//Compute inertia tensor:
 		matrix3<> I;
 		for(unsigned s=0; s<e->iInfo.species.size(); s++)
 		{	const SpeciesInfo& sp = *(e->iInfo.species[s]);
 			for(const vector3<>& rAtom: r[s])
 				I += sp.mass * (rAtom.length_squared()*matrix3<>(1,1,1) - outer(rAtom,rAtom));
+		}
+		if(dumpK)
+		{	string fname = e->dump.getFilename("InertiaTensor");
+			logPrintf("\nWriting inertia tensor to '%s' ... ", fname.c_str()); logFlush();
+			FILE* fp = fopen(fname.c_str(), "wb");
+			if(!fp) die("Error opening file for writing.\n");
+			I.write(fp);
+			fclose(fp);
 		}
 		//Get principal axis and moments:
 		matrix Imat(3,3); for(int j=0; j<3; j++) for(int k=0; k<3; k++) Imat.set(j,k, I(j,k));
