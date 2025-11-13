@@ -272,7 +272,7 @@ void Vibrations::calculate()
 			logPrintf("\nWriting center-of-mass coordinates to '%s' ... ", fname.c_str()); logFlush();
 			// FILE* fp = fopen(fname.c_str(), "wb");
 			// if(!fp) die("Error opening file for writing.\n");
-			r.write(fname);
+			r.write(fname.c_str());
 			// fclose(fp);
 		}
 		//Compute inertia tensor:
