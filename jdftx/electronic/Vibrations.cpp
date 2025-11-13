@@ -485,6 +485,17 @@ vector3<> Vibrations::getSplit() const
 		split[k] = x[k][iSplit] - 0.5*dx[iSplit];
 		split[k] -= floor(split[k]); //map to [0,1)
 	}
+	if(dumpK)
+		matrix splitMat(3,1);
+		for(int k=0; k<3; k++)
+			splitMat.set(k,0, split[k]);
+		string fname = e->dump.getFilename("split");
+		logPrintf("\nWriting split point to '%s' ... ", fname.c_str()); logFlush();
+		FILE* fp = fopen(fname.c_str(), "wb");
+		if(!fp) die("Error opening file for writing.\n");
+		splitMat.write(fp);
+		fclose(fp);
+	}
 	return split;
 }
 
