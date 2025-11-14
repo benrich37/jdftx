@@ -332,7 +332,6 @@ void Vibrations::calculate()
 		K0.write(fp);
 		fclose(fp);
 	}
-	
 	if(nProjectors)
 	{	projector = projector(0,nModes, 0,nProjectors); //discard empty columns
 		string fname = e->dump.getFilename("projector0");
@@ -348,6 +347,13 @@ void Vibrations::calculate()
 		//dP -= ppDag * dP;
 		logPrintf("Projected out %d rotation+translation modes\n", nProjectors);
 	}
+	// if(nProjectors)
+	// {	projector = projector(0,nModes, 0,nProjectors); //discard empty columns
+	// 	projector = projector * invsqrt(dagger(projector)*projector); //orthonormalize
+	// 	matrix ppDag = projector * dagger(projector);
+	// 	K -= ppDag * K * ppDag;
+	// 	logPrintf("Projected out %d rotation+translation modes\n", nProjectors);
+	// }
 	
 	//Initialize mass matrix:
 	diagMatrix invsqrtM(nModes);
@@ -475,7 +481,7 @@ void Vibrations::calculate()
 		matrix oprojector = projector * invsqrt(dagger(projector)*projector);
 		matrix ppDag = oprojector * dagger(oprojector);
 		matrix overlap = ppDag * K0 * ppDag;
-		ppDag.write(fp);
+		overlap.write(fp);
 		fclose(fp);
 	}
 	
