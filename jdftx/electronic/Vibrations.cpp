@@ -294,6 +294,22 @@ void Vibrations::calculate()
 		//Get principal axis and moments:
 		matrix Imat(3,3); for(int j=0; j<3; j++) for(int k=0; k<3; k++) Imat.set(j,k, I(j,k));
 		matrix Ievecs; diagMatrix Ieigs; Imat.diagonalize(Ievecs, Ieigs);
+		if(dumpK)
+		{	string fname = e->dump.getFilename("InertiaEigenvalues");
+			logPrintf("\nWriting inertia eigenvalues to '%s' ... ", fname.c_str()); logFlush();
+			FILE* fp = fopen(fname.c_str(), "wb");
+			if(!fp) die("Error opening file for writing.\n");
+			Ieigs.write(fp);
+			fclose(fp);
+		}
+		if(dumpK)
+		{	string fname = e->dump.getFilename("InertiaEigenvectors");
+			logPrintf("\nWriting inertia eigenvectors to '%s' ... ", fname.c_str()); logFlush();
+			FILE* fp = fopen(fname.c_str(), "wb");
+			if(!fp) die("Error opening file for writing.\n");
+			Ievecs.write(fp);
+			fclose(fp);
+		}
 		complex* IevecsData = Ievecs.data();
 		for(int j=0; j<3; j++)
 			if(Ieigs[j] > symmThreshold)
