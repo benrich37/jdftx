@@ -30,7 +30,7 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 
 const double GridInfo::maxAllowedStrain = 0.35;
 
-GridInfo::GridInfo():Gmax(0),GmaxRho(0),nr(0),initialized(false)
+GridInfo::GridInfo():Gmax(0),GmaxRho(0),nr(0),initialized(false),dGradial(0.02)
 {
 }
 
@@ -73,7 +73,7 @@ void GridInfo::updateSdependent()
 	for(int k=0; k<3; k++) h[k] = R.column(k)/S[k];
 	
 	//Recommended extent for radial functions:
-	dGradial = 0.02;
+	// dGradial = 0.02;
 	GmaxGrid = 0.0;
 	{	vector3<int> c;
 		for(c[0]=-1; c[0]<=1; c[0]+=2) for(c[1]=-1; c[1]<=1; c[1]+=2) for(c[2]=-1; c[2]<=1; c[2]+=2)
