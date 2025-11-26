@@ -72,6 +72,26 @@ commandFftbox;
 
 //-------------------------------------------------------------------------------------------------
 
+struct CommandDgradial : public Command
+{
+	CommandDgradial() : Command("dgradial", "jdftx/Electronic/Parameters")
+	{
+		format = "format";
+		comments = "comments";
+	}
+
+	void process(ParamList& pl, Everything& e)
+	{	pl.get(e.gInfo.dGradial, 0.02, "dGradial", true);
+	}
+
+	void printStatus(Everything& e, int iRep)
+	{	logPrintf("%lg", e.gInfo.dGradial);
+	}
+}
+commandDgradial;
+
+//-------------------------------------------------------------------------------------------------
+
 struct CommandElecNbands : public Command
 {
 	CommandElecNbands() : Command("elec-n-bands", "jdftx/Electronic/Parameters")

@@ -54,6 +54,9 @@ void Vibrations::calculate()
 	logPrintf("------ Vibrations::calculate() -------\n");
 	logPrintf("WARNING: Vibrations module is experimental. Please report bugs!\n");
 	logPrintf("Compare results with and without symmetries and report discrepancies.\n");
+	logPrintf("Evaluating vibrations with:\n");
+	logPrintf("\t nG: %d \n", e->gInfo.nG);
+	logPrintf("\t dGradial: %lg \n", e->gInfo.dGradial);
 
 	//Create a non-constraint which simplifies the logic below
 	SpeciesInfo::Constraint nullConstraint;
