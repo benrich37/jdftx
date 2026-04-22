@@ -22,6 +22,7 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 #include <electronic/Everything.h>
 #include <electronic/ColumnBundle.h>
 #include <core/matrix.h>
+#include <core/GpuUtil.h>
 
 //------- additional SpeciesInfo functions for ultrasoft pseudopotentials (density and overlap augmentation) -------
 
@@ -257,6 +258,9 @@ void SpeciesInfo::augmentDensityGridGrad(const ScalarFieldArray& E_n, std::vecto
 		*Eaug_RRT += matrix3<>(E_RRTsum);
 	}
 	E_nAug = dagger(QradialMat) * E_nAugRadial;  //propagate from spline coeffs to radial functions
+	#if defined(GPU_ENABLED) && defined(CUDA_AWARE_MPI)
+	cudaDeviceSynchronize(); //ensure cuBLAS completes writing E_nAug before GPU-Direct MPI reads it
+	#endif
 	mpiWorld->allReduceData(E_nAug, MPIUtil::ReduceSum);
 	watch.stop();
 }
@@ -280,6 +284,9 @@ void SpeciesInfo::augmentDensityGridGradDeriv(const ScalarFieldArray& E_n, int a
 			atposDeriv, nagIndex.dataPref(), nagIndexPtr.dataPref());
 	}
 	E_nAug = dagger(QradialMat) * E_nAugRadial;  //propagate from spline coeffs to radial functions
+	#if defined(GPU_ENABLED) && defined(CUDA_AWARE_MPI)
+	cudaDeviceSynchronize(); //ensure cuBLAS completes writing E_nAug before GPU-Direct MPI reads it
+	#endif
 	mpiWorld->allReduceData(E_nAug, MPIUtil::ReduceSum);
 	watch.stop();
 }
