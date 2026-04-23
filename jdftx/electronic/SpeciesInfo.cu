@@ -149,6 +149,7 @@ template<int Nlm> void nAugmentGrad_gpu(const vector3<int> S, const matrix3<>& G
 	GpuLaunchConfig1D glc(nAugmentGrad_collectKernel, nCoeff*Nlm);
 	nAugmentGrad_collectKernel<<<glc.nBlocks,glc.nPerBlock>>>(nCoeff*Nlm, E_nRadialTemp, E_nRadial);
 	gpuErrorCheck();
+	cudaDeviceSynchronize();
 }
 void nAugmentGrad_gpu(int Nlm, const vector3<int> S, const matrix3<>& G,
 	int nCoeff, double dGinv, const double* nRadial, const vector3<>& atpos,
