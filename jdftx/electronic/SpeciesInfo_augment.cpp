@@ -238,7 +238,7 @@ void SpeciesInfo::augmentDensityGridGrad(const ScalarFieldArray& E_n, std::vecto
 	for(unsigned s=0; s<E_n.size(); s++)
 	{	ScalarFieldTilde ccE_n = Idag(E_n[s]);
 		for(unsigned atom=0; atom<atpos.size(); atom++)
-		{	int atomOffs = nCoeffHlf * Nlm * (atom + atpos.size()*s);
+		{	int atomOffs = nCoeff * Nlm * (atom + atpos.size()*s);
 			if(forces) initZero(E_atpos);
 			callPref(nAugmentGrad)(Nlm, gInfo.S, gInfo.G, nCoeff, dGinv,
 				nAugRadialData ? (nAugRadialData+atomOffs) : 0,
@@ -258,6 +258,18 @@ void SpeciesInfo::augmentDensityGridGrad(const ScalarFieldArray& E_n, std::vecto
 	}
 	E_nAug = dagger(QradialMat) * E_nAugRadial;  //propagate from spline coeffs to radial functions
 	mpiWorld->allReduceData(E_nAug, MPIUtil::ReduceSum);
+	// Debug: check for NaN or extreme values in E_nAug
+	double maxVal = 0;
+	for(int i=0; i<E_nAug.nRows(); i++) {
+		for(int j=0; j<E_nAug.nCols(); j++) {
+			double val = fabs(E_nAug.data()[E_nAug.index(i,j)].real());
+			if(val > maxVal) maxVal = val;
+			if(isnan(val) || isinf(val)) {
+				fprintf(stderr, "ERROR: E_nAug[%d,%d] = %g (NaN/Inf detected)\n", i, j, E_nAug.data()[E_nAug.index(i,j)].real());
+			}
+		}
+	}
+	fprintf(stderr, "E_nAug max value: %g\n", maxVal);
 	watch.stop();
 }
 
@@ -272,7 +284,7 @@ void SpeciesInfo::augmentDensityGridGradDeriv(const ScalarFieldArray& E_n, int a
 	double* E_nAugRadialData = (double*)E_nAugRadial.dataPref();
 	for(unsigned s=0; s<E_n.size(); s++)
 	{	ScalarFieldTilde ccE_n = Idag(E_n[s]);
-		int atomOffs = nCoeffHlf * Nlm * (atom + atpos.size()*s);
+		int atomOffs = nCoeff * Nlm * (atom + atpos.size()*s);
 		callPref(nAugmentGrad)(Nlm, gInfo.S, gInfo.G, nCoeff, dGinv, 0,
 			atpos[atom], ccE_n->dataPref(), E_nAugRadialData+atomOffs,
 			vector3<complex*>(),
