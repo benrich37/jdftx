@@ -225,7 +225,7 @@ void SpeciesInfo::augmentDensityGridGrad(const ScalarFieldArray& E_n, std::vecto
 	if(!nAug) augmentDensityInit();
 	const GridInfo &gInfo = e->gInfo;
 	double dGinv = 1./gInfo.dGradial;
-	matrix E_nAugRadial = zeroes(nCoeff, e->eInfo.nDensities * atpos.size() * Nlm);
+	matrix E_nAugRadial = zeroes(nCoeffHlf, e->eInfo.nDensities * atpos.size() * Nlm);
 	double* E_nAugRadialData = (double*)E_nAugRadial.dataPref();
 	matrix nAugRadial; const double* nAugRadialData=0;
 	if(forces or Eaug_RRT)
@@ -238,7 +238,7 @@ void SpeciesInfo::augmentDensityGridGrad(const ScalarFieldArray& E_n, std::vecto
 	for(unsigned s=0; s<E_n.size(); s++)
 	{	ScalarFieldTilde ccE_n = Idag(E_n[s]);
 		for(unsigned atom=0; atom<atpos.size(); atom++)
-		{	int atomOffs = nCoeff * Nlm * (atom + atpos.size()*s);
+		{	int atomOffs = nCoeffHlf * Nlm * (atom + atpos.size()*s);
 			if(forces) initZero(E_atpos);
 			callPref(nAugmentGrad)(Nlm, gInfo.S, gInfo.G, nCoeff, dGinv,
 				nAugRadialData ? (nAugRadialData+atomOffs) : 0,
@@ -268,11 +268,11 @@ void SpeciesInfo::augmentDensityGridGradDeriv(const ScalarFieldArray& E_n, int a
 	if(!nAug) augmentDensityInit();
 	const GridInfo &gInfo = e->gInfo;
 	double dGinv = 1./gInfo.dGradial;
-	matrix E_nAugRadial = zeroes(nCoeff, e->eInfo.nDensities * atpos.size() * Nlm);
+	matrix E_nAugRadial = zeroes(nCoeffHlf, e->eInfo.nDensities * atpos.size() * Nlm);
 	double* E_nAugRadialData = (double*)E_nAugRadial.dataPref();
 	for(unsigned s=0; s<E_n.size(); s++)
 	{	ScalarFieldTilde ccE_n = Idag(E_n[s]);
-		int atomOffs = nCoeff * Nlm * (atom + atpos.size()*s);
+		int atomOffs = nCoeffHlf * Nlm * (atom + atpos.size()*s);
 		callPref(nAugmentGrad)(Nlm, gInfo.S, gInfo.G, nCoeff, dGinv, 0,
 			atpos[atom], ccE_n->dataPref(), E_nAugRadialData+atomOffs,
 			vector3<complex*>(),
