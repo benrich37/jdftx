@@ -270,6 +270,7 @@ void SpeciesInfo::augmentDensityGridGrad(const ScalarFieldArray& E_n, std::vecto
 		}
 	}
 	fprintf(stderr, "DEBUG augmentDensityGridGrad: E_nAug max|val|=%g min|val|=%g nRows=%d nCols=%d extremeVals=%d\n", maxVal, minVal, E_nAug.nRows(), E_nAug.nCols(), nBadVals);
+	fflush(stderr);
 	watch.stop();
 }
 
