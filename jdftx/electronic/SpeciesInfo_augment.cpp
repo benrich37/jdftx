@@ -292,6 +292,18 @@ void SpeciesInfo::augmentDensityGridGradDeriv(const ScalarFieldArray& E_n, int a
 			atposDeriv, nagIndex.dataPref(), nagIndexPtr.dataPref());
 	}
 	E_nAug = dagger(QradialMat) * E_nAugRadial;  //propagate from spline coeffs to radial functions
+	//Debug: check for NaN or extreme values in E_nAug
+	double maxVal = 0;
+	for(int i=0; i<E_nAug.nRows(); i++) {
+		for(int j=0; j<E_nAug.nCols(); j++) {
+			double val = fabs(E_nAug.data()[E_nAug.index(i,j)].real());
+			if(val > maxVal) maxVal = val;
+			if(std::isnan(val) || std::isinf(val)) {
+				fprintf(stderr, "ERROR: E_nAug[%d,%d] = %g (NaN/Inf detected)\n", i, j, E_nAug.data()[E_nAug.index(i,j)].real());
+			}
+		}
+	}
+	fprintf(stderr, "DEBUG augmentDensityGridGrad: E_nAug max value: %g (nRows=%d nCols=%d)\n", maxVal, E_nAug.nRows(), E_nAug.nCols());
 	mpiWorld->allReduceData(E_nAug, MPIUtil::ReduceSum);
 	watch.stop();
 }
