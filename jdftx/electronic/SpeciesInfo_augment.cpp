@@ -228,6 +228,8 @@ void SpeciesInfo::augmentDensityGridGrad(const ScalarFieldArray& E_n, std::vecto
 	matrix E_nAugRadial = zeroes(nCoeffHlf, e->eInfo.nDensities * atpos.size() * Nlm);
 	double* E_nAugRadialData = (double*)E_nAugRadial.dataPref();
 	matrix nAugRadial; const double* nAugRadialData=0;
+	fprintf(stderr, "DEBUG augmentDensityGridGrad: nCoeff=%d, nCoeffHlf=%d, Nlm= atpos.size=%d, E_nAugRadial.rows=%d, E_nAugRadial.cols=%d\n", nCoeff, nCoeffHlf, Nlm, atpos.size(), E_nAugRadial.nRows(), E_nAugRadial.nCols());
+	fflush(stderr);
 	if(forces or Eaug_RRT)
 	{	matrix nAugTot = nAug; mpiWorld->allReduceData(nAugTot, MPIUtil::ReduceSum);
 		nAugRadial = QradialMat * nAugTot;
@@ -283,6 +285,8 @@ void SpeciesInfo::augmentDensityGridGradDeriv(const ScalarFieldArray& E_n, int a
 	double dGinv = 1./gInfo.dGradial;
 	matrix E_nAugRadial = zeroes(nCoeffHlf, e->eInfo.nDensities * atpos.size() * Nlm);
 	double* E_nAugRadialData = (double*)E_nAugRadial.dataPref();
+	fprintf(stderr, "DEBUG augmentDensityGridGradDeriv: nCoeff=%d, nCoeffHlf=%d, Nlm= atpos.size=%d, E_nAugRadial.rows=%d, E_nAugRadial.cols=%d\n", nCoeff, nCoeffHlf, Nlm, atpos.size(), E_nAugRadial.nRows(), E_nAugRadial.nCols());
+	fflush(stderr);
 	for(unsigned s=0; s<E_n.size(); s++)
 	{	ScalarFieldTilde ccE_n = Idag(E_n[s]);
 		int atomOffs = nCoeff * Nlm * (atom + atpos.size()*s);
@@ -305,6 +309,7 @@ void SpeciesInfo::augmentDensityGridGradDeriv(const ScalarFieldArray& E_n, int a
 		}
 	}
 	fprintf(stderr, "DEBUG augmentDensityGridGrad: E_nAug max|val|=%g min|val|=%g nRows=%d nCols=%d extremeVals=%d\n", maxVal, minVal, E_nAug.nRows(), E_nAug.nCols(), nBadVals);
+	fflush(stderr);
 	mpiWorld->allReduceData(E_nAug, MPIUtil::ReduceSum);
 	watch.stop();
 }
