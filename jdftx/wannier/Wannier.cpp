@@ -56,7 +56,8 @@ void Wannier::setup(const Everything& everything)
 			od.spinType = (e->eInfo.spinType == SpinNone)
 				? SpinNone
 				: (sp.isRelativistic() ? SpinOrbit : SpinZ);
-			int nSpins = (od.spinType == SpinNone) ? 1 : 2;
+			// int nSpins = (od.spinType == SpinNone) ? 1 : 2;
+			int nSpins = 1;
 			std::vector<DOS::Weight::OrbitalDesc> orbitalDescs;
 			for(od.l=0; od.l<=sp.lMaxAtomicOrbitals(); od.l++)
 			{	int nMax = sp.nAtomicOrbitals(od.l) - 1; //max pseudo-principal quantum number
