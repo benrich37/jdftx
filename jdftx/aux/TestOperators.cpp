@@ -436,14 +436,14 @@ void testHugeFileIO()
 
 void testResample()
 {	GridInfo gInfo1;
-	gInfo1.S = vector3<int>(1,1,2) * 32;
+	gInfo1.S = vector3<int>(32, 32, 64);
 	gInfo1.R.set_col(0, vector3<>(0,5,5));
 	gInfo1.R.set_col(1, vector3<>(5,0,5));
 	gInfo1.R.set_col(2, vector3<>(9,9,0));
 	gInfo1.initialize();
 	GridInfo gInfo2;
 	gInfo2.R = matrix3<>(1,1,1) * 20;
-	gInfo2.S = vector3<int>(1,1,1) * 128;
+	gInfo2.S = vector3<int>(128, 128, 128);
 	gInfo2.initialize();
 	
 	//Create a gaussian on grid1:
@@ -487,6 +487,12 @@ void testMatrixLinalg()
 	logPrintf("Relative error in orthoMatrix = %le\n", nrm2(dagger(U) * A * U - eye(N)));
 }
 
+void testReadArrayVec3()
+{	std::vector<vector3<>> result = readArrayVec3("totalE.epsInf");
+	logPrintf("Read %lu vectors:\n", result.size());
+	for(vector3<> v: result) v.print(globalLog, " %lg ");
+}
+
 int main(int argc, char** argv)
 {	initSystem(argc, argv);
 	//testHarmonics(); return 0;
@@ -497,7 +503,8 @@ int main(int argc, char** argv)
 	//testChangeGrid(); return 0;
 	//testHugeFileIO(); return 0;
 	//testResample(); return 0;
-	testMatrixLinalg(); return 0;
+	//testMatrixLinalg(); return 0;
+	testReadArrayVec3(); return 0;
 	
 // 	const int Zn = 2;
 // 	SO3quad quad(QuadEuler, Zn, 11); //quad.print();

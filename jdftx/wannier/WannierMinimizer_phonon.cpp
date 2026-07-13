@@ -136,10 +136,12 @@ void WannierMinimizer::saveMLWF_phonon(int iSpin)
 			}
 		}
 		if (truncDir < 3) 
-		{	std::vector<vector3<>> epsInf2D = eps;
+		{	if(eps.size() != 4) die("epsInf file must contain 4 x 3 matrix (found %lu x 3 instead).\n\n", eps.size());
+			std::vector<vector3<>> epsInf2D = eps;
 			lrs2D = std::make_shared<LongRangeSum2D>(e.gInfo.R, epsInf2D, truncDir);
 		}else
-		{	matrix3<> epsInf; epsInf.set_rows(eps[0], eps[1], eps[2]);
+		{	if(eps.size() != 3) die("epsInf file must contain 3 x 3 matrix (found %lu x 3 instead).\n\n", eps.size());
+			matrix3<> epsInf; epsInf.set_rows(eps[0], eps[1], eps[2]);
 			lrs = std::make_shared<LongRangeSum>(e.gInfo.R, epsInf);
 		}
 	}
