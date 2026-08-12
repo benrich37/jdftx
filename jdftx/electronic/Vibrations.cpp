@@ -77,8 +77,8 @@ inline void dumpVibCheckpoint(Everything* e, int iConfiguration, const complex* 
 		dPdump.write(fp);
 		fclose(fp);
 
-		string fname = e->dump.getFilename("iConfiguration_confirmation");
-		FILE* fp = fopen(fname.c_str(), "w");
+		fname = e->dump.getFilename("iConfiguration_confirmation");
+		fp = fopen(fname.c_str(), "w");
 		if(!fp) die("Error opening file for writing.\n");
 		fprintf(fp, "%d\n", iConfiguration);
 		fclose(fp);
