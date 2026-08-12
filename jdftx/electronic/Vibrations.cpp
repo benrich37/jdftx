@@ -49,11 +49,17 @@ inline void setPtest(size_t iStart, size_t iStop, const vector3<int>& S, std::ve
 	)
 }
 
+inline void initVibCheckpoint(int& iConfiguration, matrix& Kdata, matrix& dPdata)
+{	iConfiguration = 0;
+	Kdata.zero();
+	dPdata.zero();
+}
+
 inline void dumpVibCheckpoint(Everything* e, int iConfiguration, const complex* Kdata, const complex* dPdata, int nModes, int iVibChk)
 {	if(iConfiguration % iVibChk)
 	{
 		logPrintf("\nDumping Vibrational Checkpoint data at configuration %d ... \n", iConfiguration); logFlush();
-		string fname = e->dump.getFilename("iConfiguration");
+		string fname = e->dump.getFilename("iConfig");
 		FILE* fp = fopen(fname.c_str(), "w");
 		if(!fp) die("Error opening file for writing.\n");
 		fprintf(fp, "%d\n", iConfiguration);
@@ -77,7 +83,7 @@ inline void dumpVibCheckpoint(Everything* e, int iConfiguration, const complex* 
 		dPdump.write(fp);
 		fclose(fp);
 
-		fname = e->dump.getFilename("iConfiguration_confirmation");
+		fname = e->dump.getFilename("iConfig_conf");
 		fp = fopen(fname.c_str(), "w");
 		if(!fp) die("Error opening file for writing.\n");
 		fprintf(fp, "%d\n", iConfiguration);
@@ -89,7 +95,37 @@ inline void dumpVibCheckpoint(Everything* e, int iConfiguration, const complex* 
 }
 
 inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata, matrix& dPdata)
-{	string fname = e->dump.getFilename("iConfiguration");
+{	
+	auto fileExists = [](const string& fname, const char* mode)
+	{	FILE* fp = fopen(fname.c_str(), mode);
+		if(!fp) return false;
+		fclose(fp);
+		return true;
+	};
+
+	struct CheckpointFile { const char* key; const char* mode; };
+	const CheckpointFile requiredFiles[] =
+	{	{"iConfig", "r"},
+		{"iConfig_conf", "r"},
+		{"Kdata", "rb"},
+		{"dPdata", "rb"}
+	};
+
+	bool missingCheckpoint = false;
+	for(const CheckpointFile& cf: requiredFiles)
+	{	if(!fileExists(e->dump.getFilename(cf.key), cf.mode))
+		{	missingCheckpoint = true;
+			break;
+		}
+	}
+
+	if(missingCheckpoint)
+	{	logPrintf("One or more required checkpoint files are missing - starting from scratch\n");
+		initVibCheckpoint(iConfiguration, Kdata, dPdata);
+		return;
+	}
+
+	string fname = e->dump.getFilename("iConfig");
 	FILE* fp = fopen(fname.c_str(), "r");
 	int iConfigurationConfirmation = 0;
 	if(fp)
@@ -99,7 +135,7 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata,
 	}
 	else iConfiguration = 0;
 
-	fname = e->dump.getFilename("iConfiguration_confirmation");
+	fname = e->dump.getFilename("iConfig_conf");
 	fp = fopen(fname.c_str(), "r");
 	if(fp)
 	{ 	if(fscanf(fp, "%d", &iConfigurationConfirmation) != 1)
@@ -109,9 +145,9 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata,
 	else iConfigurationConfirmation = -1;
 
 	if(iConfiguration != iConfigurationConfirmation)
-	{	iConfiguration = 0;
-		Kdata.zero();
-		dPdata.zero();
+	{	logPrintf("WARNING: Vibrations: Previous run appears to have exited midway through checkpoint dump (iConfig reads %d, iConfig_conf reads %d) \n", iConfiguration, iConfigurationConfirmation);
+		logPrintf("WARNING: Vibrations: Ignoring previous checkpoint and starting from scratch.\n");
+		initVibCheckpoint(iConfiguration, Kdata, dPdata);
 		return;
 	}
 
@@ -121,7 +157,10 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata,
 	{	Kdata.read(fp);
 		fclose(fp);
 	}
-	else Kdata.zero();
+	else {
+		initVibCheckpoint(iConfiguration, Kdata, dPdata);
+		return;
+	}
 
 	fname = e->dump.getFilename("dPdata");
 	fp = fopen(fname.c_str(), "rb");
@@ -129,7 +168,10 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata,
 	{	dPdata.read(fp);
 		fclose(fp);
 	}
-	else dPdata.zero();
+	else {
+		initVibCheckpoint(iConfiguration, Kdata, dPdata);
+		return;
+	}
 }
 
 void Vibrations::calculate()
