@@ -224,6 +224,7 @@ void Vibrations::calculate()
 							dPdata[dP.index(i1,k)] += w * rot_dPcur[k];
 					}
 			}
+			e->dump(DumpFreq_Ionic, iConfiguration);
 		}
 		IonicGradient d; d.init(e->iInfo); //all zeroes
 		imin.step(d-dPrev, dr); dPrev=d; //Restore original ionic positions
