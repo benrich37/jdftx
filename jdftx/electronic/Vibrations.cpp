@@ -50,41 +50,70 @@ inline void setPtest(size_t iStart, size_t iStop, const vector3<int>& S, std::ve
 }
 
 inline void dumpVibCheckpoint(Everything* e, int iConfiguration, const complex* Kdata, const complex* dPdata, int nModes, int iVibChk)
-{	if(iVibChk > 0 && (iConfiguration % iVibChk)) return;
-	string fname = e->dump.getFilename("iConfiguration");
-	FILE* fp = fopen(fname.c_str(), "w");
-	if(!fp) die("Error opening file for writing.\n");
-	fprintf(fp, "%d\n", iConfiguration);
-	fclose(fp);
+{	if(iConfiguration % iVibChk)
+	{
+		logPrintf("\nDumping Vibrational Checkpoint data at configuration %d ... \n", iConfiguration); logFlush();
+		string fname = e->dump.getFilename("iConfiguration");
+		FILE* fp = fopen(fname.c_str(), "w");
+		if(!fp) die("Error opening file for writing.\n");
+		fprintf(fp, "%d\n", iConfiguration);
+		fclose(fp);
 
-	matrix Kdump(nModes, nModes);
-	for(int i=0; i<nModes*nModes; i++) Kdump.data()[i] = Kdata[i];
-	fname = e->dump.getFilename("Kdata");
-	logPrintf("\nWriting force matrix accumulator Kdata to '%s' ... \n", fname.c_str()); logFlush();
-	fp = fopen(fname.c_str(), "wb");
-	if(!fp) die("Error opening file for writing.\n");
-	Kdump.write(fp);
-	fclose(fp);
+		matrix Kdump(nModes, nModes);
+		for(int i=0; i<nModes*nModes; i++) Kdump.data()[i] = Kdata[i];
+		fname = e->dump.getFilename("Kdata");
+		logPrintf("\nWriting force matrix accumulator Kdata to '%s' ... \n", fname.c_str()); logFlush();
+		fp = fopen(fname.c_str(), "wb");
+		if(!fp) die("Error opening file for writing.\n");
+		Kdump.write(fp);
+		fclose(fp);
 
-	matrix dPdump(nModes, 3);
-	for(int i=0; i<nModes*3; i++) dPdump.data()[i] = dPdata[i];
-	fname = e->dump.getFilename("dPdata");
-	logPrintf("Writing dipole derivative accumulator dPdata to '%s' ... \n", fname.c_str()); logFlush();
-	fp = fopen(fname.c_str(), "wb");
-	if(!fp) die("Error opening file for writing.\n");
-	dPdump.write(fp);
-	fclose(fp);
+		matrix dPdump(nModes, 3);
+		for(int i=0; i<nModes*3; i++) dPdump.data()[i] = dPdata[i];
+		fname = e->dump.getFilename("dPdata");
+		logPrintf("Writing dipole derivative accumulator dPdata to '%s' ... \n", fname.c_str()); logFlush();
+		fp = fopen(fname.c_str(), "wb");
+		if(!fp) die("Error opening file for writing.\n");
+		dPdump.write(fp);
+		fclose(fp);
+
+		string fname = e->dump.getFilename("iConfiguration_confirmation");
+		FILE* fp = fopen(fname.c_str(), "w");
+		if(!fp) die("Error opening file for writing.\n");
+		fprintf(fp, "%d\n", iConfiguration);
+		fclose(fp);
+
+		logPrintf("\n ... Done \n"); logFlush();
+	}
+	
 }
 
 inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata, matrix& dPdata)
 {	string fname = e->dump.getFilename("iConfiguration");
 	FILE* fp = fopen(fname.c_str(), "r");
+	int iConfigurationConfirmation = 0;
 	if(fp)
 	{	if(fscanf(fp, "%d", &iConfiguration) != 1)
 			die("Error reading checkpoint configuration index from '%s'.\n", fname.c_str());
 		fclose(fp);
 	}
 	else iConfiguration = 0;
+
+	fname = e->dump.getFilename("iConfiguration_confirmation");
+	fp = fopen(fname.c_str(), "r");
+	if(fp)
+	{ 	if(fscanf(fp, "%d", &iConfigurationConfirmation) != 1)
+			die("Error reading checkpoint confirmation index from '%s'.\n", fname.c_str());
+		fclose(fp);
+	}
+	else iConfigurationConfirmation = -1;
+
+	if(iConfiguration != iConfigurationConfirmation)
+	{	iConfiguration = 0;
+		Kdata.zero();
+		dPdata.zero();
+		return;
+	}
 
 	fname = e->dump.getFilename("Kdata");
 	fp = fopen(fname.c_str(), "rb");
