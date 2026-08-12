@@ -49,6 +49,60 @@ inline void setPtest(size_t iStart, size_t iStop, const vector3<int>& S, std::ve
 	)
 }
 
+inline void dumpVibCheckpoint(Everything* e, int iConfiguration, const complex* Kdata, const complex* dPdata, int nModes, int iVibChk)
+{	if(iVibChk > 0 && (iConfiguration % iVibChk)) return;
+	string fname = e->dump.getFilename("iConfiguration");
+	FILE* fp = fopen(fname.c_str(), "w");
+	if(!fp) die("Error opening file for writing.\n");
+	fprintf(fp, "%d\n", iConfiguration);
+	fclose(fp);
+
+	matrix Kdump(nModes, nModes);
+	for(int i=0; i<nModes*nModes; i++) Kdump.data()[i] = Kdata[i];
+	fname = e->dump.getFilename("Kdata");
+	logPrintf("\nWriting force matrix accumulator Kdata to '%s' ... \n", fname.c_str()); logFlush();
+	fp = fopen(fname.c_str(), "wb");
+	if(!fp) die("Error opening file for writing.\n");
+	Kdump.write(fp);
+	fclose(fp);
+
+	matrix dPdump(nModes, 3);
+	for(int i=0; i<nModes*3; i++) dPdump.data()[i] = dPdata[i];
+	fname = e->dump.getFilename("dPdata");
+	logPrintf("Writing dipole derivative accumulator dPdata to '%s' ... \n", fname.c_str()); logFlush();
+	fp = fopen(fname.c_str(), "wb");
+	if(!fp) die("Error opening file for writing.\n");
+	dPdump.write(fp);
+	fclose(fp);
+}
+
+inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata, matrix& dPdata)
+{	string fname = e->dump.getFilename("iConfiguration");
+	FILE* fp = fopen(fname.c_str(), "r");
+	if(fp)
+	{	if(fscanf(fp, "%d", &iConfiguration) != 1)
+			die("Error reading checkpoint configuration index from '%s'.\n", fname.c_str());
+		fclose(fp);
+	}
+	else iConfiguration = 0;
+
+	fname = e->dump.getFilename("Kdata");
+	fp = fopen(fname.c_str(), "rb");
+	if(fp)
+	{	Kdata.read(fp);
+		fclose(fp);
+	}
+	else Kdata.zero();
+
+	fname = e->dump.getFilename("dPdata");
+	fp = fopen(fname.c_str(), "rb");
+	if(fp)
+	{	dPdata.read(fp);
+		fclose(fp);
+	}
+	else dPdata.zero();
+}
+
 void Vibrations::calculate()
 {
 	logPrintf("------ Vibrations::calculate() -------\n");
@@ -166,65 +220,72 @@ void Vibrations::calculate()
 	IonicGradient grad0;
 	imin.compute(&grad0, 0);
 	vector3<> Pel0 = getPel(); //electronic dipole moment
-	logPrintf("Completed %d of %d configurations.\n", ++iConfiguration, nConfigurations);
 	
 	//Compute force matrix:
 	matrix K = zeroes(nModes, nModes);
 	matrix dP = zeroes(nModes, 3); //dipole derivative
+	loadVibCheckpoint(e, iConfiguration, K, dP);
+	int iConfig_last = iConfiguration;
+	logPrintf("Completed %d of %d configurations.\n", ++iConfiguration, nConfigurations);
 	{	diagMatrix mult(nModes, 0.); //multiplicity in entries due to symmetrization
 		IonicGradient dPrev; dPrev.init(e->iInfo); //previous displacement (initially zero)
 		complex *Kdata = K.data(), *dPdata = dP.data();
 		for(const Mode& mode: modes) if(mode.isPrimary) //Loop over modes in irredicuble wedge
-		{	//Create ionic gradient object corresponding to mode:
-			IonicGradient d; d.init(e->iInfo);
-			d[mode.s][mode.a] = mode.n; //all others zero
-			//Compute forces at perturbed position:
-			IonicGradient gradPlus, gradMinus, Kcur;
-			imin.step(d-dPrev, dr); dPrev=d;
-			imin.compute(&gradPlus, 0);
-			vector3<> PelPlus = getPel(), PelMinus, dPcur; //electronic dipole moment and derivative w.r.t mode
-			logPrintf("Completed %d of %d configurations.\n", ++iConfiguration, nConfigurations);
-	
-			if(centralDiff)
-			{	d *= -1;
+		{	++iConfiguration;
+			if(iConfiguration > iConfig_last)
+			{
+				//Create ionic gradient object corresponding to mode:
+				IonicGradient d; d.init(e->iInfo);
+				d[mode.s][mode.a] = mode.n; //all others zero
+				//Compute forces at perturbed position:
+				IonicGradient gradPlus, gradMinus, Kcur;
 				imin.step(d-dPrev, dr); dPrev=d;
-				imin.compute(&gradMinus, 0);
-				PelMinus = getPel();
-				logPrintf("Completed %d of %d configurations.\n", ++iConfiguration, nConfigurations);
-				Kcur = (gradPlus - gradMinus) * (0.5/dr);
-				dPcur = (PelPlus - PelMinus) * (0.5/dr);
-			}
-			else
-			{	Kcur = (gradPlus - grad0) * (1./dr);
-				dPcur = (PelPlus - Pel0) * (1./dr);
-			}
-			dPcur -= species[mode.s]->Z * mode.n; //ionic contribution to dipole derivative
-			
-			//Collect contributions to force matrix from this mode and its symmetric counterparts:
-			for(unsigned iRot=0; iRot<sym.size(); iRot++)
-			{	matrix3<> rot = e->gInfo.R * sym[iRot].rot * inv(e->gInfo.R); //cartesian rotation matrix corresponding to symmetry
-				//Modes corresponding to displacement (first index of matrix):
-				unsigned a1 = atomMap[mode.s][mode.a][iRot];
-				vector3<> n1 = rot * mode.n;
-				std::map<int,double> dModes;
-				for(int i1=0; i1<nModes; i1++)
-					if(modes[i1].s==mode.s && modes[i1].a==a1)
-					{	double w = dot(n1, modes[i1].n); //projection weight
-						if(fabs(w) < symmThreshold) continue;
-						mult[i1] += w*w; //symmetry multiplicity
-						//Loop over modes corresponding to force (second index of matrix):
-						for(int i2=0; i2<nModes; i2++)
-						{	const Mode& mode2 = modes[i2];
-							unsigned a2 = atomMap[mode2.s][mode2.a][iRotInv[iRot]]; //index of atom which upon rotation rot maps onto atom mode2.a
-							Kdata[K.index(i1,i2)] += w * dot(mode2.n, rot * Kcur[mode2.s][a2]);
+				imin.compute(&gradPlus, 0);
+				vector3<> PelPlus = getPel(), PelMinus, dPcur; //electronic dipole moment and derivative w.r.t mode
+				logPrintf("Completed %d of %d configurations.\n", iConfiguration, nConfigurations);
+		
+				if(centralDiff)
+				{	d *= -1;
+					imin.step(d-dPrev, dr); dPrev=d;
+					imin.compute(&gradMinus, 0);
+					PelMinus = getPel();
+					logPrintf("Completed %d of %d configurations.\n", ++iConfiguration, nConfigurations);
+					Kcur = (gradPlus - gradMinus) * (0.5/dr);
+					dPcur = (PelPlus - PelMinus) * (0.5/dr);
+				}
+				else
+				{	Kcur = (gradPlus - grad0) * (1./dr);
+					dPcur = (PelPlus - Pel0) * (1./dr);
+				}
+				dPcur -= species[mode.s]->Z * mode.n; //ionic contribution to dipole derivative
+				
+				//Collect contributions to force matrix from this mode and its symmetric counterparts:
+				for(unsigned iRot=0; iRot<sym.size(); iRot++)
+				{	matrix3<> rot = e->gInfo.R * sym[iRot].rot * inv(e->gInfo.R); //cartesian rotation matrix corresponding to symmetry
+					//Modes corresponding to displacement (first index of matrix):
+					unsigned a1 = atomMap[mode.s][mode.a][iRot];
+					vector3<> n1 = rot * mode.n;
+					std::map<int,double> dModes;
+					for(int i1=0; i1<nModes; i1++)
+						if(modes[i1].s==mode.s && modes[i1].a==a1)
+						{	double w = dot(n1, modes[i1].n); //projection weight
+							if(fabs(w) < symmThreshold) continue;
+							mult[i1] += w*w; //symmetry multiplicity
+							//Loop over modes corresponding to force (second index of matrix):
+							for(int i2=0; i2<nModes; i2++)
+							{	const Mode& mode2 = modes[i2];
+								unsigned a2 = atomMap[mode2.s][mode2.a][iRotInv[iRot]]; //index of atom which upon rotation rot maps onto atom mode2.a
+								Kdata[K.index(i1,i2)] += w * dot(mode2.n, rot * Kcur[mode2.s][a2]);
+							}
+							//Dipole derivatives:
+							vector3<> rot_dPcur = rot * dPcur; //rotated dipole derivative
+							for(int k=0; k<3; k++)
+								dPdata[dP.index(i1,k)] += w * rot_dPcur[k];
 						}
-						//Dipole derivatives:
-						vector3<> rot_dPcur = rot * dPcur; //rotated dipole derivative
-						for(int k=0; k<3; k++)
-							dPdata[dP.index(i1,k)] += w * rot_dPcur[k];
-					}
+				}
+				e->dump(DumpFreq_Ionic, iConfiguration);
+				dumpVibCheckpoint(e, iConfiguration, Kdata, dPdata, nModes, 3);
 			}
-			e->dump(DumpFreq_Ionic, iConfiguration);
 		}
 		IonicGradient d; d.init(e->iInfo); //all zeroes
 		imin.step(d-dPrev, dr); dPrev=d; //Restore original ionic positions
