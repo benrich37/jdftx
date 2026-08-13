@@ -175,7 +175,6 @@ void Vibrations::calculate()
 	logPrintf("------ Vibrations::calculate() -------\n");
 	logPrintf("WARNING: Vibrations module is experimental. Please report bugs!\n");
 	logPrintf("Compare results with and without symmetries and report discrepancies.\n");
-	logPrintf("Debug: checkpoint: %d\n", checkpoint);
 
 	//Create a non-constraint which simplifies the logic below
 	SpeciesInfo::Constraint nullConstraint;
