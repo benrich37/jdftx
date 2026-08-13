@@ -49,13 +49,13 @@ inline void setPtest(size_t iStart, size_t iStop, const vector3<int>& S, std::ve
 	)
 }
 
-inline void initVibCheckpoint(int& iConfiguration, matrix& Kdata, matrix& dPdata)
+inline void initVibCheckpoint(int& iConfiguration, matrix& K, matrix& dP)
 {	iConfiguration = 0;
-	Kdata.zero();
-	dPdata.zero();
+	K.zero();
+	dP.zero();
 }
 
-inline void dumpVibCheckpoint(Everything* e, int iConfiguration, const complex* Kdata, const complex* dPdata, int nModes, int iVibChk)
+inline void dumpVibCheckpoint(Everything* e, int iConfiguration, matrix& K, matrix& dP, int nModes, int iVibChk)
 {	if((iVibChk > 0) and (iConfiguration % iVibChk))
 	{
 		logPrintf("\nDumping Vibrational Checkpoint data at configuration %d ... \n", iConfiguration); logFlush();
@@ -65,22 +65,18 @@ inline void dumpVibCheckpoint(Everything* e, int iConfiguration, const complex* 
 		fprintf(fp, "%d\n", iConfiguration);
 		fclose(fp);
 
-		matrix Kdump(nModes, nModes);
-		for(int i=0; i<nModes*nModes; i++) Kdump.data()[i] = Kdata[i];
-		fname = e->dump.getFilename("Kdata");
+		fname = e->dump.getFilename("Kchk");
 		logPrintf("\nWriting force matrix accumulator Kdata to '%s' ... \n", fname.c_str()); logFlush();
 		fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
-		Kdump.write(fp);
+		K.write(fp);
 		fclose(fp);
 
-		matrix dPdump(nModes, 3);
-		for(int i=0; i<nModes*3; i++) dPdump.data()[i] = dPdata[i];
-		fname = e->dump.getFilename("dPdata");
+		fname = e->dump.getFilename("dPchk");
 		logPrintf("Writing dipole derivative accumulator dPdata to '%s' ... \n", fname.c_str()); logFlush();
 		fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
-		dPdump.write(fp);
+		dP.write(fp);
 		fclose(fp);
 
 		fname = e->dump.getFilename("iConfig_conf");
@@ -94,7 +90,7 @@ inline void dumpVibCheckpoint(Everything* e, int iConfiguration, const complex* 
 	
 }
 
-inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata, matrix& dPdata)
+inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& K, matrix& dP)
 {	
 	auto fileExists = [](const string& fname, const char* mode)
 	{	FILE* fp = fopen(fname.c_str(), mode);
@@ -107,8 +103,8 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata,
 	const CheckpointFile requiredFiles[] =
 	{	{"iConfig", "r"},
 		{"iConfig_conf", "r"},
-		{"Kdata", "rb"},
-		{"dPdata", "rb"}
+		{"Kchk", "rb"},
+		{"dPchk", "rb"}
 	};
 
 	bool missingCheckpoint = false;
@@ -121,7 +117,7 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata,
 
 	if(missingCheckpoint)
 	{	logPrintf("One or more required checkpoint files are missing - starting from scratch\n");
-		initVibCheckpoint(iConfiguration, Kdata, dPdata);
+		initVibCheckpoint(iConfiguration, K, dP);
 		return;
 	}
 
@@ -147,29 +143,29 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& Kdata,
 	if(iConfiguration != iConfigurationConfirmation)
 	{	logPrintf("WARNING: Vibrations: Previous run appears to have exited midway through checkpoint dump (iConfig reads %d, iConfig_conf reads %d) \n", iConfiguration, iConfigurationConfirmation);
 		logPrintf("WARNING: Vibrations: Ignoring previous checkpoint and starting from scratch.\n");
-		initVibCheckpoint(iConfiguration, Kdata, dPdata);
+		initVibCheckpoint(iConfiguration, K, dP);
 		return;
 	}
 
-	fname = e->dump.getFilename("Kdata");
+	fname = e->dump.getFilename("Kchk");
 	fp = fopen(fname.c_str(), "rb");
 	if(fp)
-	{	Kdata.read(fp);
+	{	K.read(fp);
 		fclose(fp);
 	}
 	else {
-		initVibCheckpoint(iConfiguration, Kdata, dPdata);
+		initVibCheckpoint(iConfiguration, K, dP);
 		return;
 	}
 
-	fname = e->dump.getFilename("dPdata");
+	fname = e->dump.getFilename("dPchk");
 	fp = fopen(fname.c_str(), "rb");
 	if(fp)
-	{	dPdata.read(fp);
+	{	dP.read(fp);
 		fclose(fp);
 	}
 	else {
-		initVibCheckpoint(iConfiguration, Kdata, dPdata);
+		initVibCheckpoint(iConfiguration, K, dP);
 		return;
 	}
 }
@@ -297,8 +293,8 @@ void Vibrations::calculate()
 	logPrintf("Completed %d of %d configurations.\n", ++iConfiguration, nConfigurations);
 	int iConfig_last = 0;
 	loadVibCheckpoint(e, iConfig_last, K, dP);
-	if(iConfiguration > 1)
-		logPrintf("Resuming from checkpoint at configuration %d of %d.\n", iConfiguration, nConfigurations);
+	if(iConfig_last > 0)
+		logPrintf("Resuming from checkpoint at configuration %d of %d.\n", iConfig_last+1, nConfigurations);
 	{	diagMatrix mult(nModes, 0.); //multiplicity in entries due to symmetrization
 		IonicGradient dPrev; dPrev.init(e->iInfo); //previous displacement (initially zero)
 		complex *Kdata = K.data(), *dPdata = dP.data();
@@ -356,7 +352,7 @@ void Vibrations::calculate()
 						}
 				}
 				e->dump(DumpFreq_Ionic, iConfiguration);
-				dumpVibCheckpoint(e, iConfiguration, Kdata, dPdata, nModes, checkpoint);
+				dumpVibCheckpoint(e, iConfiguration, K, dP, nModes, checkpoint);
 			}
 		}
 		IonicGradient d; d.init(e->iInfo); //all zeroes
