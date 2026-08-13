@@ -24,7 +24,7 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 #include <core/Units.h>
 
 Vibrations::Vibrations() : dr(0.01), centralDiff(false), useConstraints(false),
-translationSym(true), rotationSym(false), omegaMin(2e-4), T(298*Kelvin), omegaResolution(1e-4)
+translationSym(true), rotationSym(false), omegaMin(2e-4), T(298*Kelvin), omegaResolution(1e-4), checkpoint(-1)
 {
 }
 
@@ -56,7 +56,7 @@ inline void initVibCheckpoint(int& iConfiguration, matrix& Kdata, matrix& dPdata
 }
 
 inline void dumpVibCheckpoint(Everything* e, int iConfiguration, const complex* Kdata, const complex* dPdata, int nModes, int iVibChk)
-{	if(iConfiguration % iVibChk)
+{	if((iVibChk > 0) and (iConfiguration % iVibChk))
 	{
 		logPrintf("\nDumping Vibrational Checkpoint data at configuration %d ... \n", iConfiguration); logFlush();
 		string fname = e->dump.getFilename("iConfig");
@@ -291,13 +291,14 @@ void Vibrations::calculate()
 	IonicGradient grad0;
 	imin.compute(&grad0, 0);
 	vector3<> Pel0 = getPel(); //electronic dipole moment
-	
 	//Compute force matrix:
 	matrix K = zeroes(nModes, nModes);
 	matrix dP = zeroes(nModes, 3); //dipole derivative
-	loadVibCheckpoint(e, iConfiguration, K, dP);
-	int iConfig_last = iConfiguration;
 	logPrintf("Completed %d of %d configurations.\n", ++iConfiguration, nConfigurations);
+	int iConfig_last = 0;
+	loadVibCheckpoint(e, iConfig_last, K, dP);
+	if(iConfiguration > 1)
+		logPrintf("Resuming from checkpoint at configuration %d of %d.\n", iConfiguration, nConfigurations);
 	{	diagMatrix mult(nModes, 0.); //multiplicity in entries due to symmetrization
 		IonicGradient dPrev; dPrev.init(e->iInfo); //previous displacement (initially zero)
 		complex *Kdata = K.data(), *dPdata = dP.data();
@@ -355,7 +356,7 @@ void Vibrations::calculate()
 						}
 				}
 				e->dump(DumpFreq_Ionic, iConfiguration);
-				dumpVibCheckpoint(e, iConfiguration, Kdata, dPdata, nModes, 3);
+				dumpVibCheckpoint(e, iConfiguration, Kdata, dPdata, nModes, checkpoint);
 			}
 		}
 		IonicGradient d; d.init(e->iInfo); //all zeroes

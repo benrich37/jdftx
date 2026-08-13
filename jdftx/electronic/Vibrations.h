@@ -40,6 +40,7 @@ public:
 	double T; //!< ionic temperature used for entropy and free energy estimation
 	double omegaResolution; //!< frequency resolution used for identifying and reporting degeneracies
 	bool dumpK; //!< whether to dump the Hessian
+	int checkpoint; //!< interval of evaluated configurations at which progress is checkpointed for restarting.
 	
 	Vibrations();
 	void setup(Everything* e);

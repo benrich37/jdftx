@@ -611,7 +611,8 @@ enum VibrationsMember
 	VM_T,
 	VM_omegaResolution,
 	VM_dumpK,
-	VM_Delim
+	VM_Delim,
+	VM_checkpoint
 };
 
 EnumStringMap<VibrationsMember> vibMap
@@ -623,7 +624,8 @@ EnumStringMap<VibrationsMember> vibMap
 	VM_omegaMin, "omegaMin",
 	VM_T, "T",
 	VM_omegaResolution, "omegaResolution",
-	VM_dumpK, "dumpK"
+	VM_dumpK, "dumpK",
+	VM_checkpoint, "checkpoint"
 );
 
 struct CommandVibrations : public Command
@@ -652,6 +654,8 @@ struct CommandVibrations : public Command
 			"   in modes (default: 1e-4). Does not affect free energies and all modes are still printed.\n"
 			"+ dumpK yes|no: dump the Hessian matrix at the end of vibrational analysis. (default no).\n"
 			"   Includes subspace projections performed according to translationSym and rotationSym.\n"
+			"+ checkpoint <checkpoint>: Interval of evaluated configurations at which progress is \n"
+			"   checkpointed for restarting. Negative values turns off checkpointing (default -1).\n"
 			"\n"
 			"Note that for a periodic system with k-points, wave functions may be incompatible\n"
 			"with and without the vibrations command due to symmetry-breaking by the perturbations.\n"
@@ -676,6 +680,7 @@ struct CommandVibrations : public Command
 				case VM_omegaMin: pl.get(e.vibrations->omegaMin, 2e-4, "omegaMin", true); break;
 				case VM_T: pl.get(e.vibrations->T, 298., "T", true); e.vibrations->T *= Kelvin; break;
 				case VM_omegaResolution: pl.get(e.vibrations->omegaResolution, 1e-4, "omegaResolution", true); break;
+				case VM_checkpoint: pl.get(e.vibrations->checkpoint, -1, "checkpoint", true); break;
 				case VM_dumpK: pl.get(e.vibrations->dumpK, false, boolMap, "dumpK", true); break;
 				case VM_Delim: return; //end of input
 			}
@@ -693,6 +698,7 @@ struct CommandVibrations : public Command
 		logPrintf("\\\n\tT %g", e.vibrations->T/Kelvin);
 		logPrintf("\\\n\tomegaResolution %g", e.vibrations->omegaResolution);
 		logPrintf("\\\n\tdumpK %s", boolMap.getString(e.vibrations->dumpK));
+		logPrintf("\\\n\tcheckpoint %d", e.vibrations->checkpoint);
 	}
 }
 commandVibrations;
