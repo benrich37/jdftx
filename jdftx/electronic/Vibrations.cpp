@@ -49,19 +49,6 @@ inline void setPtest(size_t iStart, size_t iStop, const vector3<int>& S, std::ve
 	)
 }
 
-// DELETE ME AFTER FIX
-static int countNanEntries(const matrix& M)
-{
-    int nNan = 0;
-    const int n = M.nRows() * M.nCols();
-    const complex* p = M.data();
-    for(int i=0; i<n; i++)
-    {
-        if(std::isnan(p[i].real()) || std::isnan(p[i].imag()))
-            nNan++;
-    }
-    return nNan;
-}
 
 inline void initVibCheckpoint(int& iConfiguration, matrix& K, matrix& dP, diagMatrix& mult)
 { 	iConfiguration = 0;
@@ -419,11 +406,6 @@ void Vibrations::calculate()
 	}
 	
 	//Symmetrize force matrix:
-	logPrintf("DEBUG: NaN entries in K = %d / %d\n", countNanEntries(K), K.nRows()*K.nCols());
-	logPrintf("DEBUG: NaN entries in dP = %d / %d\n", countNanEntries(dP), dP.nRows()*dP.nCols());
-	logPrintf("\nDEBUG: nrm2(k): %lg\n", nrm2(K));
-	logPrintf("DEBUG: nrm2(dagger(K)): %lg\n", nrm2(dagger(K)));
-	logPrintf("DEBUG: nrm2(K - dagger(K)): %lg\n", nrm2(K - dagger(K)));
 	logPrintf("\nRelative symmetry error in force matrix = %lg\n", 0.5*nrm2(K - dagger(K))/nrm2(K));
 	K = dagger_symmetrize(K);
 	
