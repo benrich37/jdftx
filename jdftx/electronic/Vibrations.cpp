@@ -63,13 +63,14 @@ static int countNanEntries(const matrix& M)
     return nNan;
 }
 
-inline void initVibCheckpoint(int& iConfiguration, matrix& K, matrix& dP)
-{	iConfiguration = 0;
+inline void initVibCheckpoint(int& iConfiguration, matrix& K, matrix& dP, diagMatrix& mult)
+{ 	iConfiguration = 0;
 	K.zero();
 	dP.zero();
+	mult.assign(mult.size(), 0.);
 }
 
-inline void dumpVibCheckpoint(Everything* e, int iConfiguration, matrix& K, matrix& dP, int nModes, int iVibChk)
+inline void dumpVibCheckpoint(Everything* e, int iConfiguration, matrix& K, matrix& dP, const diagMatrix& mult, int iVibChk)
 {	if((iVibChk > 0) and ((iConfiguration % iVibChk) == 0))
 	{
 		logPrintf("\nDumping Vibrational Checkpoint data at configuration %d ... \n", iConfiguration); logFlush();
@@ -93,6 +94,13 @@ inline void dumpVibCheckpoint(Everything* e, int iConfiguration, matrix& K, matr
 		dP.write(fp);
 		fclose(fp);
 
+		fname = e->dump.getFilename("multchk");
+		logPrintf("Writing symmetry multiplicity accumulator multdata to '%s' ... \n", fname.c_str()); logFlush();
+		fp = fopen(fname.c_str(), "wb");
+		if(!fp) die("Error opening file for writing.\n");
+		if(!mult.empty()) fwrite(mult.data(), sizeof(double), mult.size(), fp);
+		fclose(fp);
+
 		fname = e->dump.getFilename("iConfig_conf");
 		fp = fopen(fname.c_str(), "w");
 		if(!fp) die("Error opening file for writing.\n");
@@ -104,7 +112,7 @@ inline void dumpVibCheckpoint(Everything* e, int iConfiguration, matrix& K, matr
 	
 }
 
-inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& K, matrix& dP)
+inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& K, matrix& dP, diagMatrix& mult)
 {	
 	auto fileExists = [](const string& fname, const char* mode)
 	{	FILE* fp = fopen(fname.c_str(), mode);
@@ -118,7 +126,8 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& K, mat
 	{	{"iConfig", "r"},
 		{"iConfig_conf", "r"},
 		{"Kchk", "rb"},
-		{"dPchk", "rb"}
+		{"dPchk", "rb"},
+		{"multchk", "rb"}
 	};
 
 	bool missingCheckpoint = false;
@@ -131,7 +140,7 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& K, mat
 
 	if(missingCheckpoint)
 	{	logPrintf("One or more required checkpoint files are missing - starting from scratch\n");
-		initVibCheckpoint(iConfiguration, K, dP);
+		initVibCheckpoint(iConfiguration, K, dP, mult);
 		return;
 	}
 
@@ -141,7 +150,7 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& K, mat
 	if(fp)
 	{	if(fscanf(fp, "%d", &iConfiguration) != 1)
 			die("Error reading checkpoint configuration index from '%s'.\n", fname.c_str());
-		fclose(fp);
+			fclose(fp);
 	}
 	else iConfiguration = 0;
 
@@ -150,14 +159,14 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& K, mat
 	if(fp)
 	{ 	if(fscanf(fp, "%d", &iConfigurationConfirmation) != 1)
 			die("Error reading checkpoint confirmation index from '%s'.\n", fname.c_str());
-		fclose(fp);
+			fclose(fp);
 	}
 	else iConfigurationConfirmation = -1;
 
 	if(iConfiguration != iConfigurationConfirmation)
 	{	logPrintf("WARNING: Vibrations: Previous run appears to have exited midway through checkpoint dump (iConfig reads %d, iConfig_conf reads %d) \n", iConfiguration, iConfigurationConfirmation);
 		logPrintf("WARNING: Vibrations: Ignoring previous checkpoint and starting from scratch.\n");
-		initVibCheckpoint(iConfiguration, K, dP);
+		initVibCheckpoint(iConfiguration, K, dP, mult);
 		return;
 	}
 
@@ -168,7 +177,7 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& K, mat
 		fclose(fp);
 	}
 	else {
-		initVibCheckpoint(iConfiguration, K, dP);
+		initVibCheckpoint(iConfiguration, K, dP, mult);
 		return;
 	}
 
@@ -179,10 +188,24 @@ inline void loadVibCheckpoint(Everything* e, int& iConfiguration, matrix& K, mat
 		fclose(fp);
 	}
 	else {
-		initVibCheckpoint(iConfiguration, K, dP);
+		initVibCheckpoint(iConfiguration, K, dP, mult);
+		return;
+	}
+
+	fname = e->dump.getFilename("multchk");
+	fp = fopen(fname.c_str(), "rb");
+	if(fp)
+	{	mult.resize(K.nRows());
+		if(K.nRows() && fread(mult.data(), sizeof(double), mult.size(), fp) != mult.size())
+			die("Error reading checkpoint multiplicity data from '%s'.\n", fname.c_str());
+		fclose(fp);
+	}
+	else {
+		initVibCheckpoint(iConfiguration, K, dP, mult);
 		return;
 	}
 }
+
 
 void Vibrations::calculate()
 {
@@ -304,14 +327,14 @@ void Vibrations::calculate()
 	//Compute force matrix:
 	matrix K = zeroes(nModes, nModes);
 	matrix dP = zeroes(nModes, 3); //dipole derivative
+	diagMatrix mult(nModes, 0.); //multiplicity in entries due to symmetrization
 	logPrintf("Completed %d of %d configurations.\n", ++iConfiguration, nConfigurations);
 	int iConfig_last = 0;
 	if(checkpoint > 0) //only load checkpoint if checkpointing is enabled
-		loadVibCheckpoint(e, iConfig_last, K, dP);
+		loadVibCheckpoint(e, iConfig_last, K, dP, mult);
 	if(iConfig_last > 0)
 		logPrintf("Resuming from checkpoint at configuration %d of %d.\n", iConfig_last+1, nConfigurations);
-	{	diagMatrix mult(nModes, 0.); //multiplicity in entries due to symmetrization
-		IonicGradient dPrev; dPrev.init(e->iInfo); //previous displacement (initially zero)
+	{	IonicGradient dPrev; dPrev.init(e->iInfo); //previous displacement (initially zero)
 		complex *Kdata = K.data(), *dPdata = dP.data();
 		for(const Mode& mode: modes) if(mode.isPrimary) //Loop over modes in irredicuble wedge
 		{	++iConfiguration;
@@ -367,7 +390,7 @@ void Vibrations::calculate()
 						}
 				}
 				e->dump(DumpFreq_Ionic, iConfiguration);
-				dumpVibCheckpoint(e, iConfiguration, K, dP, nModes, checkpoint);
+				dumpVibCheckpoint(e, iConfiguration, K, dP, mult, checkpoint);
 			}
 		}
 		IonicGradient d; d.init(e->iInfo); //all zeroes
