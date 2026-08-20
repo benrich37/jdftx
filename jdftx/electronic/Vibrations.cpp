@@ -316,6 +316,7 @@ void Vibrations::calculate()
 	matrix dP = zeroes(nModes, 3); //dipole derivative
 	diagMatrix mult(nModes, 0.); //multiplicity in entries due to symmetrization
 	logPrintf("Completed %d of %d configurations.\n", ++iConfiguration, nConfigurations);
+	e->dump(DumpFreq_Ionic, iConfiguration);
 	int iConfig_last = 0;
 	if(checkpoint > 0) //only load checkpoint if checkpointing is enabled
 		loadVibCheckpoint(e, iConfig_last, K, dP, mult);
@@ -376,7 +377,7 @@ void Vibrations::calculate()
 								dPdata[dP.index(i1,k)] += w * rot_dPcur[k];
 						}
 				}
-				e->dump(DumpFreq_Ionic, iConfiguration);
+				
 				dumpVibCheckpoint(e, iConfiguration, K, dP, mult, checkpoint);
 			}
 		}
