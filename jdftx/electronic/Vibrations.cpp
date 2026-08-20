@@ -292,7 +292,8 @@ void Vibrations::calculate()
 	matrix dP = zeroes(nModes, 3); //dipole derivative
 	logPrintf("Completed %d of %d configurations.\n", ++iConfiguration, nConfigurations);
 	int iConfig_last = 0;
-	loadVibCheckpoint(e, iConfig_last, K, dP);
+	if(checkpoint > 0) //only load checkpoint if checkpointing is enabled
+		loadVibCheckpoint(e, iConfig_last, K, dP);
 	if(iConfig_last > 0)
 		logPrintf("Resuming from checkpoint at configuration %d of %d.\n", iConfig_last+1, nConfigurations);
 	{	diagMatrix mult(nModes, 0.); //multiplicity in entries due to symmetrization
@@ -300,7 +301,7 @@ void Vibrations::calculate()
 		complex *Kdata = K.data(), *dPdata = dP.data();
 		for(const Mode& mode: modes) if(mode.isPrimary) //Loop over modes in irredicuble wedge
 		{	++iConfiguration;
-			if(iConfiguration > iConfig_last)
+			if((checkpoint < 0) or (iConfiguration > iConfig_last)) //Compute configuration always if no checkpointing or if beyond last checkpoint
 			{
 				//Create ionic gradient object corresponding to mode:
 				IonicGradient d; d.init(e->iInfo);
@@ -381,6 +382,9 @@ void Vibrations::calculate()
 	}
 	
 	//Symmetrize force matrix:
+	logPrintf("\nDEBUG: nrm2(k): %lg\n", nrm2(K));
+	logPrintf("DEBUG: nrm2(dagger(K)): %lg\n", nrm2(dagger(K)));
+	logPrintf("DEBUG: nrm2(K - dagger(K)): %lg\n", nrm2(K - dagger(K)));
 	logPrintf("\nRelative symmetry error in force matrix = %lg\n", 0.5*nrm2(K - dagger(K))/nrm2(K));
 	K = dagger_symmetrize(K);
 	
