@@ -612,7 +612,9 @@ enum VibrationsMember
 	VM_omegaResolution,
 	VM_dumpK,
 	VM_Delim,
-	VM_checkpoint
+	VM_iConfiguration,
+	VM_nConfigurations,
+	VM_collectConfigurations
 };
 
 EnumStringMap<VibrationsMember> vibMap
@@ -625,7 +627,9 @@ EnumStringMap<VibrationsMember> vibMap
 	VM_T, "T",
 	VM_omegaResolution, "omegaResolution",
 	VM_dumpK, "dumpK",
-	VM_checkpoint, "checkpoint"
+	VM_iConfiguration, "iConfiguration",
+	VM_nConfigurations, "nConfigurations",
+	VM_collectConfigurations, "collectConfigurations"
 );
 
 struct CommandVibrations : public Command
@@ -680,8 +684,10 @@ struct CommandVibrations : public Command
 				case VM_omegaMin: pl.get(e.vibrations->omegaMin, 2e-4, "omegaMin", true); break;
 				case VM_T: pl.get(e.vibrations->T, 298., "T", true); e.vibrations->T *= Kelvin; break;
 				case VM_omegaResolution: pl.get(e.vibrations->omegaResolution, 1e-4, "omegaResolution", true); break;
-				case VM_checkpoint: pl.get(e.vibrations->checkpoint, -1, "checkpoint", true); break;
 				case VM_dumpK: pl.get(e.vibrations->dumpK, false, boolMap, "dumpK", true); break;
+				case VM_collectConfigurations: pl.get(e.vibrations->collectConfigurations, true, boolMap, "collectConfigurations", true); break;
+				case VM_iConfiguration: pl.get(e.vibrations->iConfiguration, -1, "iConfiguration", true); break;
+				case VM_nConfigurations: pl.get(e.vibrations->nConfigurations, -1, "nConfigurations", true); break;
 				case VM_Delim: return; //end of input
 			}
 		}
@@ -698,7 +704,9 @@ struct CommandVibrations : public Command
 		logPrintf("\\\n\tT %g", e.vibrations->T/Kelvin);
 		logPrintf("\\\n\tomegaResolution %g", e.vibrations->omegaResolution);
 		logPrintf("\\\n\tdumpK %s", boolMap.getString(e.vibrations->dumpK));
-		logPrintf("\\\n\tcheckpoint %d", e.vibrations->checkpoint);
+		logPrintf("\\\n\tcollectConfigurations %s", boolMap.getString(e.vibrations->collectConfigurations));
+		logPrintf("\\\n\tiConfiguration %d", e.vibrations->iConfiguration);
+		logPrintf("\\\n\tnConfigurations %d", e.vibrations->nConfigurations);
 	}
 }
 commandVibrations;
