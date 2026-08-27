@@ -110,7 +110,7 @@ void Vibrations::calculate()
 	threadLaunch(setPtest, e->gInfo.nr, e->gInfo.S, Ptest.data(), getSplit());
 
 	//Get forces in unperturbed configuration
-	int nConfigs = 1 + nPrimary * (centralDiff ? 2 : 1);
+	int nConfigs = 1 + data.nPrimary * (centralDiff ? 2 : 1);
 	int iConfig = 0;
 
 	//Construct maps for mapping iConfig to perturbation d (ds), and iMode to configuration indices (iModeToConfigs):
@@ -164,7 +164,7 @@ void Vibrations::calculate()
 		logPrintf("\nWriting force matrix K to '%s' ... \n", fname.c_str()); logFlush();
 		FILE* fp = fopen(fname.c_str(), "wb");
 		if(!fp) die("Error opening file for writing.\n");
-		K.write(fp);
+		data.K.write(fp);
 		fclose(fp);
 	}	
 }
@@ -295,9 +295,8 @@ void Vibrations::compute_iConfig(IonicMinimizer& imin, IonicGradient& d, IonicGr
 
 void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<IonicGradient>& ds, IonicGradient& grad, vector3<>& Pel, int iConfig)
 {	//Compute forces and dipole derivatives for this configuration
-	// IDE is telling me this is not gonna compile but keeping for now
-	string grad_fname = e->dump.getFilename("grad" + std::to_string(iConfig));
-	string Pel_fname = e->dump.getFilename("Pel" + std::to_string(iConfig));
+	string grad_fname = e->dump.getFilename(string(("grad" + std::to_string(iConfig)).c_str()));
+	string Pel_fname = e->dump.getFilename(string(("Pel" + std::to_string(iConfig)).c_str()));
 	bool perform_compute = collectConfigurations;
 	std::vector<string> req_fnames = {grad_fname, Pel_fname};
 	for(const string& fname: req_fnames)
