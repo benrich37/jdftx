@@ -611,10 +611,10 @@ enum VibrationsMember
 	VM_T,
 	VM_omegaResolution,
 	VM_dumpK,
-	VM_Delim,
 	VM_iConfiguration,
 	VM_nConfigurations,
-	VM_collectConfigurations
+	VM_collectConfigurations,
+	VM_Delim
 };
 
 EnumStringMap<VibrationsMember> vibMap

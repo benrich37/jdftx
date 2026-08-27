@@ -74,13 +74,15 @@ void Vibrations::calculate()
 
 	// Determine which configurations to compute, and whether to only compute or also collect into Hessian/dipole derivative matrices:
 
-	//                      ||      nConfigurations >= 0           || nConfigurations == -1 (default) 
-	// -------------------- || --------------------------------    || ------------------------------- 
-	// iConfiguration >= 0  || Run iConfigs iConfiguration through ||    Run iConfiguration only     
+	//                      ||      nConfigurations >= 0           ||  nConfigurations == -1  
+	//                      ||                                     ||        (default)
+	// -------------------- || --------------------------------    || -------------------------
+	//                      ||            Run iConfigs             ||
+	// iConfiguration >= 0  ||      iConfiguration through         || Run iConfiguration only     
 	//                      ||  iConfiguration+nConfigurations-1   ||                                 
-	// -------------------- || --------------------------------    || ------------------------------- 
-	// iConfiguration == -1 ||    Run first nConfigurations        ||    Run all configurations          
-	//      (default)       ||                                     ||           (default)                       
+	// -------------------- || --------------------------------    || -------------------------
+	// iConfiguration == -1 ||    Run first nConfigurations        || Run all configurations          
+	//      (default)       ||                                     ||        (default)                       
         
 	bool startSet = (iConfiguration>=0);
 	bool lenSet = (nConfigurations>=0);
