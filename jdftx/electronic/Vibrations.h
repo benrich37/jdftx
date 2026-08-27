@@ -22,6 +22,8 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <core/VectorField.h>
 #include <electronic/IonicMinimizer.h>
+#include <electronic/SpeciesInfo.h>
+#include <set>
 
 class Everything;
 
@@ -38,9 +40,13 @@ struct Mode
 using AtomMap = std::vector< std::vector< std::vector<int> > >;
 
 struct VibrationsData
-{	const AtomMap* atomMap = nullptr; // Pointer to the atom map (species, atom, symmetry operation) for the system
-	const std::vector< std::shared_ptr<SpeciesInfo> >* species = nullptr; // Pointer to the species information for the system
-	const std::vector<SpaceGroupOp>* sym = nullptr; // Pointer to the symmetry operations for the system
+{	
+	// const AtomMap* atomMap = nullptr; // Pointer to the atom map (species, atom, symmetry operation) for the system
+	// const std::vector< std::shared_ptr<SpeciesInfo> >* species = nullptr; // Pointer to the species information for the system
+	// const std::vector<SpaceGroupOp>* sym = nullptr; // Pointer to the symmetry operations for the system
+	// const int* atomMap = nullptr; // Pointer to the atom map (species, atom, symmetry operation) for the system
+	// const int* species = nullptr; // Pointer to the species information for the system
+	// const int* sym = nullptr; // Pointer to the symmetry operations for the system
 	std::vector<Mode> modes; //!< vibrational modes (in the irredicuble wedge)
 	int nPrimary; //!< number of primary modes (in the irredicuble wedge)
 	bool foundTranslatable; //!< whether any of the modes are trans
@@ -92,11 +98,13 @@ private:
 	vector3<> getPel() const; //get electronic dipole moment at current state in cartesian coordinates
 	void construct_modes(VibrationsData& data); //construct vibrational modes and Hessian/dipole derivative matrices
 	void construct_maps(VibrationsData& data); //construct mapping from modes to configurations and the corresponding ionic gradients
+	void set_iRotInv(VibrationsData& data); //set the inverse of each symmetry operation
 	void compute_iConfig(IonicMinimizer& imin, IonicGradient& d, IonicGradient& grad, vector3<>& Pel); //compute the ionic gradient and dipole moment for a given perturbation d
 	void compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<IonicGradient>& ds, IonicGradient& grad, vector3<>& Pel, int iConfig); //compute or collect the ionic gradient and dipole moment for a given configuration index
 	void process_mode(IonicMinimizer& imin, int iMode, VibrationsData& data, IonicGradient& grad0, vector3<>& Pel0);
 	void collect_cur_contributions(VibrationsData& data, const IonicGradient& Kcur, const vector3<>& dPcur, int iMode);
 	void apply_projections(VibrationsData& data);
+	void solve_modes(VibrationsData& data);
 	void process_solved_modes(VibrationsData& data);
 	void print_modes(VibrationsData& data);
 	void print_free_energy(VibrationsData& data);

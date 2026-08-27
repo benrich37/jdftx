@@ -65,9 +65,6 @@ void Vibrations::calculate()
 	const auto& species = e->iInfo.species;
 	const std::vector<SpaceGroupOp>& sym = e->symmUnperturbed.getMatrices();
 	const auto& atomMap = e->symmUnperturbed.getAtomMap();
-	data.species = &species;
-	data.sym = &sym;
-	data.atomMap = &atomMap;
 
 	//Construct the modes to evaluate
 	construct_modes(data);
@@ -177,12 +174,14 @@ void Vibrations::construct_modes(VibrationsData& data)
 	SpeciesInfo::Constraint nullConstraint;
 	nullConstraint.moveScale = 1.;
 	nullConstraint.type = SpeciesInfo::Constraint::None;
-	const auto& species = *(data.species);
-	const auto& sym = *(data.sym);
-	const auto& atomMap = *(data.atomMap);
+	const auto& species = e->iInfo.species;
+	// const auto& sym = *(data.sym);
+	const std::vector<SpaceGroupOp>& sym = e->symmUnperturbed.getMatrices();
+	// const auto& atomMap = *(data.atomMap);
+	const auto& atomMap = e->symmUnperturbed.getAtomMap();
 	data.nPrimary = 0;
 	data.foundTranslatable = false;
-	for(unsigned s=0; s<data.species->size(); s++)
+	for(unsigned s=0; s<species.size(); s++)
 	{	const SpeciesInfo& sp = *(species[s]);
 		std::vector<bool> isPrimary(sp.atpos.size(), true);  //whether atom is the first of a set related by symmetries
 		for(unsigned a=0; a<sp.atpos.size(); a++)
@@ -271,9 +270,9 @@ void Vibrations::construct_maps(VibrationsData& data)
 	}
 }
 
-void set_iRotInv(VibrationsData& data)
+void Vibrations::set_iRotInv(VibrationsData& data)
 {	//Find inverse of each symmetry matrix:
-	const std::vector<SpaceGroupOp>& sym = *(data.sym);
+	const std::vector<SpaceGroupOp>& sym = e->symmUnperturbed.getMatrices();
 	data.iRotInv.resize(sym.size());
 	std::vector<unsigned>& iRotInv = data.iRotInv;
 	// std::vector<unsigned> iRotInv(sym.size());
@@ -373,8 +372,8 @@ void Vibrations::process_mode(IonicMinimizer& imin, int iMode, VibrationsData& d
 
 // void Vibrations::collect_cur_contributions(sym, atomMap, iRotInv, modes, Kcur, dPcur, mult, Kdata, dPdata){
 void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGradient& Kcur, const vector3<>& dPcur, int iMode){
-	const auto& sym = *(data.sym);
-	const auto& atomMap = *(data.atomMap);
+	const std::vector<SpaceGroupOp>& sym = e->symmUnperturbed.getMatrices();
+	const auto& atomMap = e->symmUnperturbed.getAtomMap();
 	const auto& modes = data.modes;
 	Mode mode = modes[iMode];
 	const auto& iRotInv = data.iRotInv;
@@ -485,8 +484,8 @@ void Vibrations::apply_projections(VibrationsData& data){
 	}
 }
 
-void solve_modes(VibrationsData& data){
-	const auto& species = *(data.species);
+void Vibrations::solve_modes(VibrationsData& data){
+	const auto& species = e->iInfo.species;
 	int nModes = data.modes.size();
 
 	//Initialize mass matrix:
