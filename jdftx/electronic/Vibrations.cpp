@@ -89,7 +89,7 @@ void Vibrations::calculate()
 	
 	//Determine number of degrees of freedom:
 	int nModes = data.modes.size();
-	logPrintf("Degrees of freedom: %d total, %d symmetry-independent.\n", nModes, nPrimary);
+	logPrintf("Degrees of freedom: %d total, %d symmetry-independent.\n", nModes, data.nPrimary);
 	if(!nModes)
 	{	//Exit, but produce output in the same format as if there were modes:
 		logPrintf("0 imaginary modes, 0 modes within cutoff, 0 real modes.\n");
@@ -145,7 +145,7 @@ void Vibrations::calculate()
 	fill_in_trans_sym_modes(data);
 
 	//Symmetrize force matrix:
-	logPrintf("\nRelative symmetry error in force matrix = %lg\n", 0.5*nrm2(K - dagger(K))/nrm2(K));
+	logPrintf("\nRelative symmetry error in force matrix = %lg\n", 0.5*nrm2(data.K - dagger(data.K))/nrm2(data.K));
 	data.K = dagger_symmetrize(data.K);
 
 	//Project out translation / rotation modes:
@@ -363,7 +363,7 @@ void Vibrations::process_mode(IonicMinimizer& imin, int iMode, VibrationsData& d
 			}
 		}
 		if(!computeOnly){
-			const auto& species = *(data.species);
+			const auto& species = e->iInfo.species;
 			dPcur -= species[mode.s]->Z * mode.n; //ionic contribution to dipole derivative
 			collect_cur_contributions(data, Kcur, dPcur, iMode);
 		}
@@ -405,7 +405,7 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 	}
 }
 
-void account_for_multiplicity(VibrationsData& data){
+void Vibrations::account_for_multiplicity(VibrationsData& data){
 	//Invert multiplicity matrixZero out  modes to be set by translational symmetry:
 	for(int i=0; i<data.modes.size(); i++)
 		data.mult[i] = data.modes[i].fromTranslation ? 0. : 1./data.mult[i];
@@ -415,7 +415,7 @@ void account_for_multiplicity(VibrationsData& data){
 	data.dP = data.mult * data.dP;
 }
 
-void fill_in_trans_sym_modes(VibrationsData& data){
+void Vibrations::fill_in_trans_sym_modes(VibrationsData& data){
 	const std::vector<Mode>& modes = data.modes;
 	matrix& K = data.K;
 	matrix& dP = data.dP;
@@ -511,7 +511,7 @@ void Vibrations::process_solved_modes(VibrationsData& data){
 		if(omegaSqEigPrev<+omegaMinSq && omegaSqEig>+omegaMinSq) data.iRealStart=i;
 		omegaSqEigPrev = omegaSqEig;
 	}
-	logPrintf("%d imaginary modes, %d modes within cutoff, %d real modes.\n", iZeroStart, iRealStart-iZeroStart, nModes-iRealStart);
+	logPrintf("%d imaginary modes, %d modes within cutoff, %d real modes.\n", data.iZeroStart, data.iRealStart-data.iZeroStart, nModes-data.iRealStart);
 	
 	//Detect degeneracies:
 	for(int i=1; i<nModes; i++)

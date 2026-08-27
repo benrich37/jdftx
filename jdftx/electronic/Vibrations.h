@@ -41,12 +41,6 @@ using AtomMap = std::vector< std::vector< std::vector<int> > >;
 
 struct VibrationsData
 {	
-	// const AtomMap* atomMap = nullptr; // Pointer to the atom map (species, atom, symmetry operation) for the system
-	// const std::vector< std::shared_ptr<SpeciesInfo> >* species = nullptr; // Pointer to the species information for the system
-	// const std::vector<SpaceGroupOp>* sym = nullptr; // Pointer to the symmetry operations for the system
-	// const int* atomMap = nullptr; // Pointer to the atom map (species, atom, symmetry operation) for the system
-	// const int* species = nullptr; // Pointer to the species information for the system
-	// const int* sym = nullptr; // Pointer to the symmetry operations for the system
 	std::vector<Mode> modes; //!< vibrational modes (in the irredicuble wedge)
 	int nPrimary; //!< number of primary modes (in the irredicuble wedge)
 	bool foundTranslatable; //!< whether any of the modes are trans
@@ -103,6 +97,8 @@ private:
 	void compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<IonicGradient>& ds, IonicGradient& grad, vector3<>& Pel, int iConfig); //compute or collect the ionic gradient and dipole moment for a given configuration index
 	void process_mode(IonicMinimizer& imin, int iMode, VibrationsData& data, IonicGradient& grad0, vector3<>& Pel0);
 	void collect_cur_contributions(VibrationsData& data, const IonicGradient& Kcur, const vector3<>& dPcur, int iMode);
+	void account_for_multiplicity(VibrationsData& data); //account for multiplicity of each mode in the Hessian and dipole derivative matrices
+	void fill_in_trans_sym_modes(VibrationsData& data); //fill in the translation and rotation modes in the Hessian and dipole derivative matrices
 	void apply_projections(VibrationsData& data);
 	void solve_modes(VibrationsData& data);
 	void process_solved_modes(VibrationsData& data);
