@@ -342,7 +342,7 @@ void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<Io
 		IonicGradient& d = ds.at(iConfig);
 		compute_iConfig(imin, d, grad, Pel);
 		const int& nConfigs = ds.size();
-		logPrintf("Completed %d of %d configurations.\n", iConfig, nConfigs);
+		logPrintf("Completed %d of %d configurations.\n", iConfig+1, nConfigs);
 		logPrintf("compute_or_collect_iConfig - writing grad.\n"); logFlush();
 		grad.write(grad_fname.c_str());
 		matrix Pel_mat = zeroes(3,1);
