@@ -622,7 +622,7 @@ void Vibrations::print_modes(VibrationsData& data){
 	matrix Pevecs = dagger(dEvecs) * data.dP; // dipole moments of the eigenvectors
 	diagMatrix PsqEvecs = diag(Pevecs * dagger(Pevecs)); //dipole intensity of the eigenvectors
 	complex* dEvecsData = dEvecs.data();
-	for(int i=0; i<modes.size(); i++)
+	for(int i=0; i<data.nModes; i++)
 	{	//Classify mode:
 		string modeType; int iMode=0;
 		if(i<iZeroStart) { iMode=i; modeType = "Imaginary"; }
@@ -647,7 +647,7 @@ void Vibrations::print_modes(VibrationsData& data){
 		double meanPhase, sigmaPhase, rmsImagErr;
 		removePhase(3, dEvecsData+dEvecs.index(0,i), meanPhase, sigmaPhase, rmsImagErr);
 		IonicGradient d; d.init(e->iInfo);
-		for(int j=0; j<modes.size(); j++)
+		for(int j=0; j<data.nModes; j++)
 			d[modes[j].s][modes[j].a] += modes[j].n * dEvecsData[dEvecs.index(j,i)].real();
 		logPrintf("Displacements:\n");
 		for(unsigned s=0; s<d.size(); s++)
@@ -662,7 +662,7 @@ void Vibrations::print_free_energy(VibrationsData& data){
 	logPrintf("print_free_energy - setting references.\n"); logFlush();
 	//Global quantities:
 	double ZPE = 0., Evib = 0., Avib = 0.; //zero-point energy, average energy and free energy
-	for(int i=data.iRealStart; i<data.modes.size(); i++)
+	for(int i=data.iRealStart; i<data.nModes; i++)
 	{	double omega = sqrt(data.omegaSqEigs[i]);
 		double expMomegaByT = exp(-omega/T);
 		ZPE += 0.5*omega;
