@@ -355,7 +355,7 @@ void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<Io
 			e->dump(DumpFreq_Ionic, iConfig);
 		}
 	}
-	else{
+	else if(!computeOnly){
 		logPrintf("compute_or_collect_iConfig - reading grad.\n"); logFlush();
 		grad.read(grad_fname.c_str());
 		matrix Pel_mat = zeroes(3,1);
