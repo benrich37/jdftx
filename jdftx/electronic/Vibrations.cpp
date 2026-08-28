@@ -76,11 +76,14 @@ void Vibrations::calculate()
 	// iConfiguration == -1 ||    Run first nConfigurations        || Run all configurations          
 	//      (default)       ||                                     ||        (default)                       
         
+	logPrintf("iConfiguration = %d, nConfigurations = %d\n", iConfiguration, nConfigurations);
 	bool startSet = (iConfiguration>=0);
 	bool lenSet = (nConfigurations>=0);
 	int iConfigStart = startSet ? iConfiguration : 0;
 	int iConfigStop  = startSet ? (lenSet ? iConfiguration + nConfigurations : iConfiguration+1) : data.nModes;
+	logPrintf("iConfigStart = %d, iConfigStop = %d\n", iConfigStart, iConfigStop);
 	bool computeOnly = startSet or lenSet; //If either of these are set, do not bother in anything besides computing and writing grad and Pel
+	logPrintf("computeOnly = %d\n", computeOnly);
 	
 	//Determine number of degrees of freedom:
 	logPrintf("Degrees of freedom: %d total, %d symmetry-independent.\n", data.nModes, data.nPrimary);
