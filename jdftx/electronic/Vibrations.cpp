@@ -124,7 +124,6 @@ void Vibrations::calculate()
 		logPrintf("Computing K/dP/mult ...\n"); logFlush();
 		compute_or_collect_iConfig(imin, data.ds, grad0, Pel0, 0);
 		logPrintf("Computing K/dP/mult - done.\n"); logFlush();
-		e->dump(DumpFreq_Ionic, 0);
 		logPrintf("Looping through modes/configurations ...\n"); logFlush();
 		for(int iMode=0; iMode<data.nModes; iMode++){
 			//Evaluate forces and dipole moment at configuration(s) corresponding to this mode, and add contributions to K and dP
@@ -190,7 +189,6 @@ void Vibrations::construct_modes(VibrationsData& data)
 	const auto& atomMap = e->symmUnperturbed.getAtomMap();
 	data.nPrimary = 0;
 	data.foundTranslatable = false;
-	const int& nSpecies = species.size();
 	for(unsigned s=0; s<species.size(); s++)
 	{	const SpeciesInfo& sp = *(species[s]);
 		std::vector<bool> isPrimary(sp.atpos.size(), true);  //whether atom is the first of a set related by symmetries
@@ -352,6 +350,9 @@ void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<Io
 		}
 		logPrintf("compute_or_collect_iConfig - writing Pel.\n"); logFlush();
 		Pel_mat.write(Pel_fname.c_str());
+		if(iConfig == 0){
+			e->dump(DumpFreq_Ionic, iConfig);
+		}
 	}
 	else{
 		logPrintf("compute_or_collect_iConfig - reading grad.\n"); logFlush();
