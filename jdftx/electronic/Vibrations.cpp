@@ -329,7 +329,7 @@ void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<Io
 	logPrintf("compute_or_collect_iConfig - setting fnames.\n"); logFlush();
 	string grad_fname = e->dump.getFilename(string(("grad" + std::to_string(iConfig)).c_str()));
 	string Pel_fname = e->dump.getFilename(string(("Pel" + std::to_string(iConfig)).c_str()));
-	bool perform_compute = collectConfigurations;
+	bool perform_compute = false;
 	std::vector<string> req_fnames = {grad_fname, Pel_fname};
 	logPrintf("compute_or_collect_iConfig - check for file pre-existence.\n"); logFlush();
 	for(const string& fname: req_fnames)
