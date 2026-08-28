@@ -452,8 +452,10 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 				for(int i2=0; i2<data.nModes; i2++)
 				{	const Mode& mode2 = modes[i2];
 					unsigned a2 = atomMap[mode2.s][mode2.a][iRotInv[iRot]]; //index of atom which upon rotation rot maps onto atom mode2.a
+					logPrintf("collect_cur_contributions - getting K i1 i2 contrib.\n"); logFlush();
+					double contrib = w * dot(mode2.n, rot * Kcur[mode2.s][a2]);
 					logPrintf("collect_cur_contributions - adding to K.\n"); logFlush();
-					K.data()[K.index(i1,i2)] += w * dot(mode2.n, rot * Kcur[mode2.s][a2]);
+					K.data()[K.index(i1,i2)] += contrib;
 				}
 				//Dipole derivatives:
 				vector3<> rot_dPcur = rot * dPcur; //rotated dipole derivative
