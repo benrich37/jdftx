@@ -431,8 +431,8 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 	matrix& dP = data.dP;
 	logPrintf("collect_cur_contributions - looping through iRot.\n"); logFlush();
 	for(unsigned iRot=0; iRot<sym.size(); iRot++){	
-		// matrix3<> rot = e->gInfo.R * sym[iRot].rot * inv(e->gInfo.R); //cartesian rotation matrix corresponding to symmetry
-		matrix3<> rot = e->gInfo.R * sym.at(iRot).rot * inv(e->gInfo.R); //cartesian rotation matrix corresponding to symmetry
+		matrix3<> rot = e->gInfo.R * sym[iRot].rot * inv(e->gInfo.R); //cartesian rotation matrix corresponding to symmetry
+		// matrix3<> rot = e->gInfo.R * sym.at(iRot).rot * inv(e->gInfo.R); //cartesian rotation matrix corresponding to symmetry
 		//Modes corresponding to displacement (first index of matrix):
 		// unsigned a1 = atomMap[mode.s][mode.a][iRot];
 		unsigned a1 = atomMap.at(mode.s).at(mode.a).at(iRot);
