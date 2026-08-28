@@ -439,11 +439,10 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 		vector3<> n1 = rot * mode.n;
 		std::map<int,double> dModes;
 		logPrintf("collect_cur_contributions - looping through modes (1).\n"); logFlush();
-		for(int i1=0; i1<modes.size(); i1++)
+		for(int i1=0; i1<modes.size(); i1++){
 			// if(modes[i1].s==mode.s && modes[i1].a==a1)
-			const Mode& mode1 = modes.at(i1)
-			if(mode1.s==mode.s && mode1.a==a1)
-			{	
+			const Mode& mode1 = modes.at(i1);
+			if(mode1.s==mode.s && mode1.a==a1){	
 				// double w = dot(n1, modes[i1].n); //projection weight
 				double w = dot(n1, mode1.n); //projection weight
 				if(fabs(w) < symmThreshold) continue;
@@ -460,11 +459,10 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 				vector3<> rot_dPcur = rot * dPcur; //rotated dipole derivative
 				for(int k=0; k<3; k++){
 					logPrintf("collect_cur_contributions - adding to dP.\n"); logFlush();
-					// dP.data()[dP.index(i1,k)] += w * rot_dPcur[k];
-					dP.data()[dP.index(i1,k)] += w * rot_dPcur.at(k);
+					dP.data()[dP.index(i1,k)] += w * rot_dPcur[k];
 				}
-					
 			}
+		}
 	}
 }
 
