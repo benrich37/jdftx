@@ -41,14 +41,15 @@ using AtomMap = std::vector< std::vector< std::vector<int> > >;
 
 struct VibrationsData
 {	
-	std::vector<Mode> modes; //!< vibrational modes (in the irredicuble wedge)
+	std::vector<Mode> modes; //!< vibrational modes / degrees of freedom
+	int nModes; //!< number of vibrational modes cast to signed integer
 	int nPrimary; //!< number of primary modes (in the irredicuble wedge)
 	bool foundTranslatable; //!< whether any of the modes are trans
 	std::vector<unsigned> iRotInv; //!< mapping from symmetry operation index to its inverse (for symmetrization)
-	std::vector<IonicGradient> ds; //!< ionic gradients for each configuration (in the irredicuble wedge)
-	std::vector<std::vector<int>> iModeToConfigs; //!< mapping from mode index to configuration indices (in the irredicuble wedge)
-	matrix K; //!< Hessian matrix (in the irredicuble wedge)
-	matrix dP; //!< dipole moment derivative matrix (in the irredicuble wedge)
+	std::vector<IonicGradient> ds; //!< ionic gradients for each configuration 
+	std::vector<std::vector<int>> iModeToConfigs; //!< mapping from mode index to configuration indices
+	matrix K; //!< Hessian matrix
+	matrix dP; //!< dipole moment derivative matrix
 	diagMatrix mult; //!< multiplicity of each mode (due to symmetries)
 	diagMatrix invsqrtM; //!< inverse square root of mass matrix
 	matrix omegaSq; //!< frequency-squared matrix
