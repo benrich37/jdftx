@@ -132,36 +132,47 @@ void Vibrations::calculate()
 		compute_or_collect_iConfig(imin, data.ds, grad0, Pel0, 0);
 		logPrintf("Computing K/dP/mult - done.\n"); logFlush();
 		e->dump(DumpFreq_Ionic, 0);
+		logPrintf("Looping through modes/configurations ...\n"); logFlush();
 		for(unsigned iMode=0; iMode<nModes; iMode++){
 			//Evaluate forces and dipole moment at configuration(s) corresponding to this mode, and add contributions to K and dP
 			process_mode(imin, iMode, data, grad0, Pel0);
 		}
+		logPrintf(" ... done.\n"); logFlush();
 		if(computeOnly){
 			logPrintf("All requested configurations computed and written to disk. Exiting.\n");
 			return;
 		}
 	}
+	logPrintf("Clearing mult/ds from memory.\n"); logFlush();
 	data.mult.clear();
 	data.ds.clear();
 
 	//Correct for multiple countings:
+	logPrintf("Accounting for multiplicity.\n"); logFlush();
 	account_for_multiplicity(data);
 	//Fill in modes set by translation symmetry, if any:
+	logPrintf("Filling in modes set by translation symmetry.\n"); logFlush();
 	fill_in_trans_sym_modes(data);
 
 	//Symmetrize force matrix:
+	logPrintf("Symmetrizing force matrix.\n"); logFlush();
 	logPrintf("\nRelative symmetry error in force matrix = %lg\n", 0.5*nrm2(data.K - dagger(data.K))/nrm2(data.K));
 	data.K = dagger_symmetrize(data.K);
 
 	//Project out translation / rotation modes:
+	logPrintf("Projecting out tr/rot modes.\n"); logFlush();
 	apply_projections(data);
 	//Construct mass-weighted frequency-squared matrix and solve for eigenvalues and eigenvectors:
+	logPrintf("Solving mass-weighted eigenmodes.\n"); logFlush();
 	solve_modes(data);
 	//Enumerate imaginary, zero, and real modes:
+	logPrintf("Classifying eigenmodes.\n"); logFlush();
 	process_solved_modes(data);
 	//Print mode information to out file:
+	logPrintf("Printing out eigenmode information.\n"); logFlush();
 	print_modes(data);
 	//Print vibrational free energy components to out file:
+	logPrintf("Printing out free energy.\n"); logFlush();
 	print_free_energy(data);
 	//Dump Hessian if requested:
 	if(dumpK)
@@ -300,18 +311,24 @@ void Vibrations::set_iRotInv(VibrationsData& data)
 
 void Vibrations::compute_iConfig(IonicMinimizer& imin, IonicGradient& d, IonicGradient& grad, vector3<>& Pel)
 {	//Compute forces and dipole derivatives for this configuration
+	logPrintf("compute_iConfig - stepping.\n"); logFlush();
 	imin.step(d, dr);
+	logPrintf("compute_iConfig - computing grad.\n"); logFlush();
 	imin.compute(&grad, 0);
+	logPrintf("compute_iConfig - computing Pel.\n"); logFlush();
 	Pel = getPel();
+	logPrintf("compute_iConfig - unstepping.\n"); logFlush();
 	imin.step(d, -dr); //restore to unperturbed configuration
 }
 
 void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<IonicGradient>& ds, IonicGradient& grad, vector3<>& Pel, int iConfig)
 {	//Compute forces and dipole derivatives for this configuration
+	logPrintf("compute_or_collect_iConfig - setting fnames.\n"); logFlush();
 	string grad_fname = e->dump.getFilename(string(("grad" + std::to_string(iConfig)).c_str()));
 	string Pel_fname = e->dump.getFilename(string(("Pel" + std::to_string(iConfig)).c_str()));
 	bool perform_compute = collectConfigurations;
 	std::vector<string> req_fnames = {grad_fname, Pel_fname};
+	logPrintf("compute_or_collect_iConfig - check for file pre-existence.\n"); logFlush();
 	for(const string& fname: req_fnames)
 	{	FILE* fp = fopen(fname.c_str(), "rb");
 		if(!fp){
@@ -321,20 +338,25 @@ void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<Io
 		else fclose(fp);
 	}
 	if(perform_compute){
+		logPrintf("compute_or_collect_iConfig - setting up compute for iConfig.\n"); logFlush();
 		IonicGradient& d = ds[iConfig];
 		compute_iConfig(imin, d, grad, Pel);
 		logPrintf("Completed %d of %d configurations.\n", iConfig, ds.size());
+		logPrintf("compute_or_collect_iConfig - writing grad.\n"); logFlush();
 		grad.write(grad_fname.c_str());
 		matrix Pel_mat = zeroes(3,1);
 		for (int k=0; k<3; k++){
 			Pel_mat(k,0) = Pel[k];
 		}
+		logPrintf("compute_or_collect_iConfig - writing Pel.\n"); logFlush();
 		Pel_mat.write(Pel_fname.c_str());
 	}
 	else{
+		logPrintf("compute_or_collect_iConfig - reading grad.\n"); logFlush();
 		grad.read(grad_fname.c_str());
 		matrix Pel_mat = zeroes(3,1);
 		// matrix3<> Pel_mat(1, 3, 3);
+		logPrintf("compute_or_collect_iConfig - reading Pel.\n"); logFlush();
 		Pel_mat.read(Pel_fname.c_str());
 		complex *Pel_data = Pel_mat.data();
 		for (int k=0; k<3; k++){
@@ -344,8 +366,10 @@ void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<Io
 }
 
 void Vibrations::process_mode(IonicMinimizer& imin, int iMode, VibrationsData& data, IonicGradient& grad0, vector3<>& Pel0){
+	logPrintf("Processing mode - selecting mode.\n"); logFlush();
 	Mode mode = data.modes[iMode];
 	if(mode.isPrimary){
+		logPrintf("Processing mode - setting/initializing references.\n"); logFlush();
 		IonicGradient gradPlus, gradMinus;
 		vector3<> PelPlus, PelMinus;
 		std::vector<IonicGradient>& ds = data.ds;
@@ -355,13 +379,16 @@ void Vibrations::process_mode(IonicMinimizer& imin, int iMode, VibrationsData& d
 		vector3<> dPcur;
 		// If this is a compute-only run, just compute every configuration within the range as gradPlus/PelPlus and move on
 		if(computeOnly){
+			logPrintf("Processing mode - compute only - looping through configs for mode.\n"); logFlush();
 			for(int iConfig: iConfigs){
 				if(iConfig >= iConfigStart && iConfig < iConfigStop){
+					logPrintf("Processing mode - compute only - compute or collecting.\n"); logFlush();
 					compute_or_collect_iConfig(imin, ds, gradPlus, PelPlus, iConfig);
 				}
 			}
 		}
 		else{
+			logPrintf("Processing mode - compute and analyze - looping through configs for mode.\n"); logFlush();
 			int iiConfig = 0;
 			compute_or_collect_iConfig(imin, ds, gradPlus, PelPlus, iConfigs[iiConfig++]);
 			if(centralDiff){
@@ -373,10 +400,10 @@ void Vibrations::process_mode(IonicMinimizer& imin, int iMode, VibrationsData& d
 				Kcur = (gradPlus - grad0) * (1./dr);
 				dPcur = (PelPlus - Pel0) * (1./dr);
 			}
-		}
-		if(!computeOnly){
+			logPrintf("Processing mode - compute and analyze - correcting for ionic contribution to dipole.\n"); logFlush();
 			const auto& species = e->iInfo.species;
 			dPcur -= species[mode.s]->Z * mode.n; //ionic contribution to dipole derivative
+			logPrintf("Processing mode - compute and analyze - collecting current contributions to K and dP.\n"); logFlush();
 			collect_cur_contributions(data, Kcur, dPcur, iMode);
 		}
 	}
@@ -384,6 +411,7 @@ void Vibrations::process_mode(IonicMinimizer& imin, int iMode, VibrationsData& d
 
 // void Vibrations::collect_cur_contributions(sym, atomMap, iRotInv, modes, Kcur, dPcur, mult, Kdata, dPdata){
 void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGradient& Kcur, const vector3<>& dPcur, int iMode){
+	logPrintf("collect_cur_contributions - setting up references.\n"); logFlush();
 	const std::vector<SpaceGroupOp>& sym = e->symmUnperturbed.getMatrices();
 	const auto& atomMap = e->symmUnperturbed.getAtomMap();
 	const auto& modes = data.modes;
@@ -392,46 +420,57 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 	std::vector<double>& mult = data.mult;
 	matrix& K = data.K;
 	matrix& dP = data.dP;
+	logPrintf("collect_cur_contributions - looping through iRot.\n"); logFlush();
 	for(unsigned iRot=0; iRot<sym.size(); iRot++){	
 		matrix3<> rot = e->gInfo.R * sym[iRot].rot * inv(e->gInfo.R); //cartesian rotation matrix corresponding to symmetry
 		//Modes corresponding to displacement (first index of matrix):
 		unsigned a1 = atomMap[mode.s][mode.a][iRot];
 		vector3<> n1 = rot * mode.n;
 		std::map<int,double> dModes;
+		logPrintf("collect_cur_contributions - looping through modes (1).\n"); logFlush();
 		for(int i1=0; i1<modes.size(); i1++)
 			if(modes[i1].s==mode.s && modes[i1].a==a1)
 			{	double w = dot(n1, modes[i1].n); //projection weight
 				if(fabs(w) < symmThreshold) continue;
 				mult[i1] += w*w; //symmetry multiplicity
 				//Loop over modes corresponding to force (second index of matrix):
+				logPrintf("collect_cur_contributions - looping through modes (2).\n"); logFlush();
 				for(int i2=0; i2<modes.size(); i2++)
 				{	const Mode& mode2 = modes[i2];
 					unsigned a2 = atomMap[mode2.s][mode2.a][iRotInv[iRot]]; //index of atom which upon rotation rot maps onto atom mode2.a
+					logPrintf("collect_cur_contributions - adding to K.\n"); logFlush();
 					K.data()[K.index(i1,i2)] += w * dot(mode2.n, rot * Kcur[mode2.s][a2]);
 				}
 				//Dipole derivatives:
 				vector3<> rot_dPcur = rot * dPcur; //rotated dipole derivative
-				for(int k=0; k<3; k++)
+				for(int k=0; k<3; k++){
+					logPrintf("collect_cur_contributions - adding to dP.\n"); logFlush();
 					dP.data()[dP.index(i1,k)] += w * rot_dPcur[k];
+				}
+					
 			}
 	}
 }
 
 void Vibrations::account_for_multiplicity(VibrationsData& data){
+	logPrintf("account_for_multiplicity - inverting mult.\n"); logFlush();
 	//Invert multiplicity matrixZero out  modes to be set by translational symmetry:
 	for(int i=0; i<data.modes.size(); i++)
 		data.mult[i] = data.modes[i].fromTranslation ? 0. : 1./data.mult[i];
 	
 	//Correct for multiple counting:
+	logPrintf("account_for_multiplicity - correcting K and dP.\n"); logFlush();
 	data.K = data.mult * data.K;
 	data.dP = data.mult * data.dP;
 }
 
 void Vibrations::fill_in_trans_sym_modes(VibrationsData& data){
+	logPrintf("fill_in_trans_sym_modes - setting references.\n"); logFlush();
 	const std::vector<Mode>& modes = data.modes;
 	matrix& K = data.K;
 	matrix& dP = data.dP;
 	int nModes = modes.size();
+	logPrintf("fill_in_trans_sym_modes - looping through modes.\n"); logFlush();
 	for(int i1=0; i1<nModes; i1++) if(modes[i1].fromTranslation)
 	{	//Create a uniform unit displacement of all atoms which moves current atom according to mode:
 		matrix x(1, nModes); complex* xData = x.data();
@@ -439,6 +478,7 @@ void Vibrations::fill_in_trans_sym_modes(VibrationsData& data){
 			xData[x.index(0,i2)] = dot(modes[i1].n, modes[i2].n);
 		//A uniform displacement of all atoms should yield no net force
 		//Except three rows of K are zero; set them so that the above becomes true.
+		logPrintf("fill_in_trans_sym_modes - setting fill-ins for K/dP.\n"); logFlush();
 		K.set(i1,i1+1, 0,nModes, -(x * K));
 		//Simiarly polarization due to uniform displacement should be zero:
 		dP.set(i1,i1+1, 0,3, -(x * dP));
@@ -446,6 +486,7 @@ void Vibrations::fill_in_trans_sym_modes(VibrationsData& data){
 }
 
 void Vibrations::apply_projections(VibrationsData& data){
+	logPrintf("apply_projections - setting references.\n"); logFlush();
 	const std::vector<Mode>& modes = data.modes;
 	matrix& K = data.K;
 	matrix& dP = data.dP;
@@ -497,26 +538,35 @@ void Vibrations::apply_projections(VibrationsData& data){
 }
 
 void Vibrations::solve_modes(VibrationsData& data){
+	logPrintf("solve_modes - setting references.\n"); logFlush();
 	const auto& species = e->iInfo.species;
 	int nModes = data.modes.size();
 
 	//Initialize mass matrix:
+	logPrintf("solve_modes - Initialize mass matrix.\n"); logFlush();
 	data.invsqrtM = diagMatrix(nModes);
 	for(int i=0; i<nModes; i++)
 		data.invsqrtM[i] = 1./sqrt(species[data.modes[i].s]->mass * amu);
 	
 	//Construct and diagonalize frequency-squared matrix:
+	// data.omegaSq = zeroes(nModes, nModes);
+	logPrintf("solve_modes - Constructing omegaAq.\n"); logFlush();
 	data.omegaSq = data.invsqrtM * data.K * data.invsqrtM;
+	data.omegaSqEigs = diagMatrix(nModes);
+	data.omegaSqEvecs = zeroes(nModes, nModes);
+	logPrintf("solve_modes - diagonalize omegaSq.\n"); logFlush();
 	data.omegaSq.diagonalize(data.omegaSqEvecs, data.omegaSqEigs);
 }
 
 void Vibrations::process_solved_modes(VibrationsData& data){
+	logPrintf("process_solved_modes - setting references.\n"); logFlush();
 	int nModes = data.modes.size();
 
 	//Determine number of modes of each type:
 	data.iZeroStart=0, data.iRealStart=nModes;
 	double omegaMinSq = omegaMin*omegaMin;
 	double omegaSqEigPrev = -DBL_MAX;
+	logPrintf("process_solved_modes - counting modes by type.\n"); logFlush();
 	for(int i=0; i<nModes; i++)
 	{	double omegaSqEig = data.omegaSqEigs[i];
 		if(omegaSqEigPrev<-omegaMinSq && omegaSqEig>-omegaMinSq) data.iZeroStart=i;
@@ -526,6 +576,7 @@ void Vibrations::process_solved_modes(VibrationsData& data){
 	logPrintf("%d imaginary modes, %d modes within cutoff, %d real modes.\n", data.iZeroStart, data.iRealStart-data.iZeroStart, nModes-data.iRealStart);
 	
 	//Detect degeneracies:
+	logPrintf("process_solved_modes - detecting degeneracies.\n"); logFlush();
 	for(int i=1; i<nModes; i++)
 		if(fabs(sqrt(fabs(data.omegaSqEigs[i])) - sqrt(fabs(data.omegaSqEigs[i-1]))) > omegaResolution)
 			data.iFreqChange.insert(i);
@@ -536,6 +587,7 @@ void Vibrations::process_solved_modes(VibrationsData& data){
 }
 
 void Vibrations::print_modes(VibrationsData& data){
+	logPrintf("print_modes - setting references.\n"); logFlush();
 	const double fineStructConst = 7.29735257e-3;
 	std::vector<Mode>& modes = data.modes;
 	matrix& K = data.K;
@@ -591,6 +643,7 @@ void Vibrations::print_modes(VibrationsData& data){
 }
 
 void Vibrations::print_free_energy(VibrationsData& data){
+	logPrintf("print_free_energy - setting references.\n"); logFlush();
 	//Global quantities:
 	double ZPE = 0., Evib = 0., Avib = 0.; //zero-point energy, average energy and free energy
 	for(int i=data.iRealStart; i<data.modes.size(); i++)
