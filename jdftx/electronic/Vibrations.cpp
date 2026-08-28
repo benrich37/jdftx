@@ -81,8 +81,7 @@ void Vibrations::calculate()
 	bool startSet = (iConfiguration>=0);
 	bool lenSet = (nConfigurations>=0);
 	iConfigStart = startSet ? iConfiguration : 0;
-	// iConfigStop  = startSet ? (lenSet ? iConfiguration + nConfigurations : iConfiguration+1) : data.nModes;
-	iConfigStop = lenSet ? (startSet ? iConfiguration + nConfigurations : nConfigurations) : data.nModes;
+	iConfigStop = lenSet ? iConfigStart + nConfigurations : data.nModes + 1;
 	logPrintf("iConfigStart = %d, iConfigStop = %d\n", iConfigStart, iConfigStop);
 	computeOnly = startSet or lenSet; //If either of these are set, do not bother in anything besides computing and writing grad and Pel
 	logPrintf("computeOnly = %d\n", computeOnly);
