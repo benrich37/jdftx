@@ -503,7 +503,6 @@ void Vibrations::apply_projections(VibrationsData& data){
 	logPrintf("apply_projections - setting references.\n"); logFlush();
 	const std::vector<Mode>& modes = data.modes;
 	matrix& K = data.K;
-	matrix& dP = data.dP;
 	//Project out translation / rotation modes:
 	matrix projector(data.nModes, 6); int nProjectors=0;
 	complex* projData = projector.data();
