@@ -60,11 +60,6 @@ void Vibrations::calculate()
 
 	//Initialize data structure to hold all relevant information for the calculation:
 	VibrationsData data;
-	
-	//Initialize pointers to relevant information in Everything:
-	const auto& species = e->iInfo.species;
-	const std::vector<SpaceGroupOp>& sym = e->symmUnperturbed.getMatrices();
-	const auto& atomMap = e->symmUnperturbed.getAtomMap();
 
 	//Construct the modes to evaluate
 	construct_modes(data);
@@ -83,8 +78,8 @@ void Vibrations::calculate()
         
 	bool startSet = (iConfiguration>=0);
 	bool lenSet = (nConfigurations>=0);
-	unsigned iConfigStart = startSet ? iConfiguration : 0;
-	unsigned iConfigStop  = startSet ? (lenSet ? iConfiguration + nConfigurations : iConfiguration+1) : data.modes.size();
+	int iConfigStart = startSet ? iConfiguration : 0;
+	int iConfigStop  = startSet ? (lenSet ? iConfiguration + nConfigurations : iConfiguration+1) : data.modes.size();
 	bool computeOnly = startSet or lenSet; //If either of these are set, do not bother in anything besides computing and writing grad and Pel
 	
 	//Determine number of degrees of freedom:
@@ -133,7 +128,7 @@ void Vibrations::calculate()
 		logPrintf("Computing K/dP/mult - done.\n"); logFlush();
 		e->dump(DumpFreq_Ionic, 0);
 		logPrintf("Looping through modes/configurations ...\n"); logFlush();
-		for(unsigned iMode=0; iMode<nModes; iMode++){
+		for(int iMode=0; iMode<nModes; iMode++){
 			//Evaluate forces and dipole moment at configuration(s) corresponding to this mode, and add contributions to K and dP
 			process_mode(imin, iMode, data, grad0, Pel0);
 		}
@@ -197,6 +192,7 @@ void Vibrations::construct_modes(VibrationsData& data)
 	const auto& atomMap = e->symmUnperturbed.getAtomMap();
 	data.nPrimary = 0;
 	data.foundTranslatable = false;
+	const int& nSpecies = species.size();
 	for(unsigned s=0; s<species.size(); s++)
 	{	const SpeciesInfo& sp = *(species[s]);
 		std::vector<bool> isPrimary(sp.atpos.size(), true);  //whether atom is the first of a set related by symmetries
