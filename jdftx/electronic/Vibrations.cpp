@@ -258,7 +258,6 @@ void Vibrations::construct_modes(VibrationsData& data)
 void Vibrations::construct_maps(VibrationsData& data)
 {	logPrintf("Constructing maps - creating references.\n"); logFlush();
 	int nConfigs = 1 + data.nPrimary * (centralDiff ? 2 : 1);
-	data.nConfigs = nConfigs;
 	data.iModeToConfigs.resize(data.nModes);
 	data.ds.resize(nConfigs);
 	const std::vector<Mode>& modes = data.modes;
