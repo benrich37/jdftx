@@ -266,6 +266,9 @@ void Vibrations::construct_maps(VibrationsData& data)
 	const std::vector<Mode>& modes = data.modes;
 	std::vector<std::vector<int>>& iModeToConfigs = data.iModeToConfigs;
 	std::vector<IonicGradient>& ds = data.ds;
+	//Set perturbation for equilibrium configuration (iConfig=0) to zero:
+	IonicGradient& d = ds[0];
+	d.init(e->iInfo);
 	//Collect the displacements corresponding to each configuration
 	int iConfig = 1;
 	int nModes = modes.size();
@@ -273,12 +276,12 @@ void Vibrations::construct_maps(VibrationsData& data)
 	for(int iMode=0; iMode<nModes; iMode++)
 	{	const Mode& mode = modes[iMode];
 		std::vector<int>& iConfigs = iModeToConfigs[iMode];
+		IonicGradient& d = ds[iConfig];
+		d.init(e->iInfo);
 		if(!mode.isPrimary) continue;
 		logPrintf("Constructing maps - pushing back iConfig to iConfigs.\n"); logFlush();
 		iConfigs.push_back(iConfig);
 		logPrintf("Constructing maps - creating d.\n"); logFlush();
-		IonicGradient& d = ds[iConfig];
-		d.init(e->iInfo);
 		logPrintf("Constructing maps - modifying d.\n"); logFlush();
 		d[mode.s][mode.a] = mode.n;
 		ds[iConfig] = d;
