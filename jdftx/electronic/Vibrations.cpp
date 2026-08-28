@@ -454,7 +454,10 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 					unsigned a2 = atomMap[mode2.s][mode2.a][iRotInv[iRot]]; //index of atom which upon rotation rot maps onto atom mode2.a
 					logPrintf("collect_cur_contributions - getting K i1 i2 contrib.\n"); logFlush();
 					logPrintf("collect_cur_contributions - i1 = %d, i2 = %d, a2 = %d, mode2.s = %d, mode2.a = %d, iRotInv[iRot] = %d\n", i1, i2, a2, mode2.s, mode2.a, iRotInv[iRot]); logFlush();
-					double contrib = w * dot(mode2.n, rot * Kcur[mode2.s][a2]);
+					logPrintf("collect_cur_contributions - getting K i1 i2 contrib - part1\n"); logFlush();
+					vector3<> rotKcur = rot * Kcur[mode2.s][a2]; //rotated force derivative
+					logPrintf("collect_cur_contributions - getting K i1 i2 contrib - part2\n"); logFlush();
+					double contrib = w * dot(mode2.n, rotKcur);
 					logPrintf("collect_cur_contributions - adding to K.\n"); logFlush();
 					K.data()[K.index(i1,i2)] += contrib;
 				}
