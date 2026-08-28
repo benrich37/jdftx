@@ -114,18 +114,23 @@ void Vibrations::calculate()
 	int iConfig = 0;
 
 	//Construct maps for mapping iConfig to perturbation d (ds), and iMode to configuration indices (iModeToConfigs):
+	logPrintf("Constructing maps ...\n"); logFlush();
 	construct_maps(data);
+	logPrintf("Constructing maps - done.\n"); logFlush();
 
 	//Initialize Hessian, dipole derivative matrix, and multiplicity vector:
+	logPrintf("Initializing K/dP/mult.\n"); logFlush();
 	data.K = zeroes(nModes, nModes); //force matrix
 	data.dP = zeroes(nModes, 3); //dipole derivative
 	data.mult = diagMatrix(nModes, 0.); //multiplicity in entries due to symmetrization
-	{
+	{	logPrintf("imin/grad0/Pel0.\n"); logFlush();
 		IonicMinimizer imin(*e);
 		IonicGradient grad0;
 		vector3<> Pel0;
 		//Evaluate forces and dipole moment at equilibrium configuration (iConfig=0)
+		logPrintf("Computing K/dP/mult ...\n"); logFlush();
 		compute_or_collect_iConfig(imin, data.ds, grad0, Pel0, 0);
+		logPrintf("Computing K/dP/mult - done.\n"); logFlush();
 		e->dump(DumpFreq_Ionic, 0);
 		for(unsigned iMode=0; iMode<nModes; iMode++){
 			//Evaluate forces and dipole moment at configuration(s) corresponding to this mode, and add contributions to K and dP
@@ -243,19 +248,24 @@ void Vibrations::construct_modes(VibrationsData& data)
 
 
 void Vibrations::construct_maps(VibrationsData& data)
-{	const std::vector<Mode>& modes = data.modes;
+{	logPrintf("Constructing maps - creating references.\n"); logFlush();
+	const std::vector<Mode>& modes = data.modes;
 	std::vector<std::vector<int>>& iModeToConfigs = data.iModeToConfigs;
 	std::vector<IonicGradient>& ds = data.ds;
 	//Collect the displacements corresponding to each configuration
 	int iConfig = 1;
 	int nModes = modes.size();
+	logPrintf("Constructing maps - beginning loop.\n"); logFlush();
 	for(int iMode=0; iMode<nModes; iMode++)
 	{	const Mode& mode = modes[iMode];
 		std::vector<int>& iConfigs = iModeToConfigs[iMode];
 		if(!mode.isPrimary) continue;
+		logPrintf("Constructing maps - pushing back iConfig to iConfigs.\n"); logFlush();
 		iConfigs.push_back(iConfig);
+		logPrintf("Constructing maps - creating d.\n"); logFlush();
 		IonicGradient& d = ds[iConfig];
 		d.init(e->iInfo);
+		logPrintf("Constructing maps - modifying d.\n"); logFlush();
 		d[mode.s][mode.a] = mode.n;
 		ds[iConfig] = d;
 		if(centralDiff)
