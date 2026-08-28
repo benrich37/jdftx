@@ -85,7 +85,7 @@ public:
 	
 private:
 	Everything* e;
-	unsigned iConfigStart, iConfigStop; //range of configurations to evaluate
+	int iConfigStart, iConfigStop; //range of configurations to evaluate
 	bool computeOnly; //whether to only compute the configurations, or also collect them into the Hessian and dipole derivative matrices
 	vector3<> getSplit() const; //get optimum latttice coordinates for splitting periodicity in a molecular geometry
 	struct IonicGradient getCMcoords() const; //get cartesian coordinates of all atoms relative to molecule center of mass
