@@ -451,17 +451,17 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 				logPrintf("collect_cur_contributions - looping through modes (2).\n"); logFlush();
 				for(int i2=0; i2<data.nModes; i2++)
 				{	const Mode& mode2 = modes[i2];
-					unsigned a2 = atomMap[mode2.s][mode2.a][iRotInv[iRot]]; //index of atom which upon rotation rot maps onto atom mode2.a
 					logPrintf("collect_cur_contributions - getting K i1 i2 contrib.\n"); logFlush();
+					logPrintf("collect_cur_contributions - inverseRotation.\n"); logFlush();
+					unsigned inverseRotation = iRotInv.at(iRot);
+					logPrintf("collect_cur_contributions - a2.\n"); logFlush();
+					unsigned a2 = atomMap.at(mode2.s).at(mode2.a).at(inverseRotation);
+					// unsigned a2 = atomMap[mode2.s][mode2.a][iRotInv[iRot]]; //index of atom which upon rotation rot maps onto atom mode2.a
+					
 					logPrintf("collect_cur_contributions - i1 = %d, i2 = %d, a2 = %d, mode2.s = %d, mode2.a = %d, iRotInv[iRot] = %d\n", i1, i2, a2, mode2.s, mode2.a, iRotInv[iRot]); logFlush();
-					logPrintf("collect_cur_contributions - getting K i1 i2 contrib - part1\n"); logFlush();
-					for(int k1=0; k1<3; k1++){
-						logPrintf("collect_cur_contributions - Kcur[%d][%d] = %lg\n", k1, a2, Kcur[k1][a2]); logFlush();
-						// for(int k2=0; k2<3; k2++){
-						// 	logPrintf("collect_cur_contributions - rot[%d][%d] = %lg\n", k1, k2, rot[k1][k2]); logFlush();
-						// }
-					}
-					vector3<> rotKcur = rot * Kcur[mode2.s][a2]; //rotated force derivative
+					logPrintf("collect_cur_contributions - getting K i1 i2 contrib - rotKcur\n"); logFlush();
+					vector3<> rotKcur = rot * Kcur.at(mode2.s).at(a2);
+					// vector3<> rotKcur = rot * Kcur[mode2.s][a2]; //rotated force derivative
 					logPrintf("collect_cur_contributions - getting K i1 i2 contrib - part2\n"); logFlush();
 					double contrib = w * dot(mode2.n, rotKcur);
 					logPrintf("collect_cur_contributions - adding to K.\n"); logFlush();
