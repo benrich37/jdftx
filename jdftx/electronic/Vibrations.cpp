@@ -296,14 +296,14 @@ void Vibrations::construct_maps(VibrationsData& data)
 void Vibrations::set_iRotInv(VibrationsData& data)
 {	//Find inverse of each symmetry matrix:
 	const std::vector<SpaceGroupOp>& sym = e->symmUnperturbed.getMatrices();
-	data.iRotInv.resize(sym.size());
-	std::vector<unsigned>& iRotInv = data.iRotInv;
+	data.iRotInv = std::vector<unsigned>(sym.size());
+	// std::vector<unsigned>& iRotInv = data.iRotInv;
 	// std::vector<unsigned> iRotInv(sym.size());
 	for(unsigned iRot1=0; iRot1<sym.size(); iRot1++)
 		for(unsigned iRot2=iRot1; iRot2<sym.size(); iRot2++)
 			if(sym[iRot1].rot * sym[iRot2].rot == matrix3<int>(1,1,1))
-			{	iRotInv[iRot1] = iRot2;
-				iRotInv[iRot2] = iRot1;
+			{	data.iRotInv[iRot1] = iRot2;
+				data.iRotInv[iRot2] = iRot1;
 				continue;
 			}
 }
