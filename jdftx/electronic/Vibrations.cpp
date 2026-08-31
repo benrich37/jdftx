@@ -379,7 +379,11 @@ void Vibrations::process_mode(IonicMinimizer& imin, int iMode, VibrationsData& d
 	if(mode.isPrimary){
 		logPrintf("Processing mode - setting/initializing references.\n"); logFlush();
 		IonicGradient gradPlus, gradMinus;
-		vector3<> PelPlus, PelMinus;
+		gradPlus.init(e->iInfo);
+		gradMinus.init(e->iInfo);
+		// vector3<> PelPlus, PelMinus;
+		vector3<> PelPlus = vector3<>(0,0,0);
+		vector3<> PelMinus = vector3<>(0,0,0);
 		std::vector<IonicGradient>& ds = data.ds;
 		std::vector<int> iConfigs = data.iModeToConfigs[iMode];
 		IonicGradient Kcur; 
