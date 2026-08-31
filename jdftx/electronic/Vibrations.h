@@ -22,6 +22,7 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <core/VectorField.h>
 #include <electronic/IonicMinimizer.h>
+#include <set>
 
 class Everything;
 
