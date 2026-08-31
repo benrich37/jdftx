@@ -28,7 +28,7 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 class Everything;
 
 
-//! @brief Vibrational modes and free energy calculator
+// Structure representing an individual mode
 struct Mode
 {	unsigned s; //!< species number
 	unsigned a; //!< atom number
@@ -37,8 +37,17 @@ struct Mode
 	bool fromTranslation; //!< whether this mode is filled in by the translation symmetry
 };
 
+// QUESTION - Originally defined this here as a pointer to the atomMap was being stored in the VibrationsData struct, but I was
+// having trouble figuring out how to store a pointer instead of the actual object in a struct so I opted instead to just
+// re-express `e->symmUnperturbed.getAtomMap();` wherever atomMap was needed. Should this - 
+// 1 - be moved to Vibrations.cpp?
+// 2 - be moved to Symmetries.h?
+// 3 - be removed entirely and just refer to atomMaps as `std::vector< std::vector< std::vector<int> > >`?
 using AtomMap = std::vector< std::vector< std::vector<int> > >;
 
+
+
+// Structure to hold results from computations/analysis for passing to helper functions
 struct VibrationsData
 {	
 	std::vector<Mode> modes; //!< vibrational modes / degrees of freedom
