@@ -23,6 +23,9 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 #include <core/LatticeUtils.h>
 #include <core/Units.h>
 
+// For debugging
+#include <iostream>
+
 
 Vibrations::Vibrations() : dr(0.01), centralDiff(false), useConstraints(false),
 translationSym(true), rotationSym(false), omegaMin(2e-4), T(298*Kelvin), omegaResolution(1e-4), 
@@ -457,18 +460,22 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 					logPrintf("collect_cur_contributions - a2.\n"); logFlush();
 					unsigned a2 = atomMap.at(mode2.s).at(mode2.a).at(inverseRotation);
 					// unsigned a2 = atomMap[mode2.s][mode2.a][iRotInv[iRot]]; //index of atom which upon rotation rot maps onto atom mode2.a
-					
+					// NEW: Validate that a2 is in bounds
+					if(a2 >= Kcur.at(mode2.s).size()) {
+						die("collect_cur_contributions: Invalid atom index a2=%u >= %zu for species %u (mode2.a=%u, inverseRotation=%u)\n",
+							a2, Kcur.at(mode2.s).size(), mode2.s, mode2.a, inverseRotation);
+					}
 					logPrintf("collect_cur_contributions - i1 = %d, i2 = %d, a2 = %d, mode2.s = %d, mode2.a = %d, iRotInv[iRot] = %d\n", i1, i2, a2, mode2.s, mode2.a, iRotInv[iRot]); logFlush();
 					// logPrintf("Kcur species=%d/%d, atom=%d/%d, rotation=%d/%d\n",
 					// 			mode2.s, Kcur.size(),
 					// 			a2, Kcur.at(mode2.s).size(),
 					// 			inverseRotation, iRotInv.size());
-					logPrintf("Kcur species=%d/", mode2.s); logFlush();
-					logPrintf("%d, ", Kcur.size()); logFlush();
-					logPrintf("atom=%d/", a2); logFlush();
-					logPrintf("%d, ", Kcur.at(mode2.s).size()); logFlush();
-					logPrintf("rotation=%d/", inverseRotation); logFlush();
-					logPrintf("%d\n", iRotInv.size()); logFlush();
+					logPrintf("Kcur species=%u/", mode2.s); logFlush();
+					logPrintf("%d, ", static_cast<int>(Kcur.size())); logFlush();
+					logPrintf("atom=%u/", a2); logFlush();
+					logPrintf("%d, ", static_cast<int>(Kcur.at(mode2.s).size())); logFlush();
+					logPrintf("rotation=%u/", inverseRotation); logFlush();
+					logPrintf("%d\n", static_cast<int>(iRotInv.size())); logFlush();
 					logPrintf("collect_cur_contributions - getting K i1 i2 contrib - rotKcur\n"); logFlush();
 					vector3<> rotKcur = rot * Kcur.at(mode2.s).at(a2);
 					// vector3<> rotKcur = rot * Kcur[mode2.s][a2]; //rotated force derivative
