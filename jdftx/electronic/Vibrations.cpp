@@ -23,9 +23,6 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 #include <core/LatticeUtils.h>
 #include <core/Units.h>
 
-// For debugging
-#include <iostream>
-
 
 Vibrations::Vibrations() : dr(0.01), centralDiff(false), useConstraints(false),
 translationSym(true), rotationSym(false), omegaMin(2e-4), T(298*Kelvin), omegaResolution(1e-4), 
@@ -173,7 +170,7 @@ void Vibrations::construct_modes(VibrationsData& data)
 	nullConstraint.type = SpeciesInfo::Constraint::None;
 	const auto& species = e->iInfo.species;
 	const std::vector<SpaceGroupOp>& sym = e->symmUnperturbed.getMatrices();
-	const auto& atomMap = e->symmUnperturbed.getAtomMap();
+	const std::vector< std::vector< std::vector<int> > >& atomMap = e->symmUnperturbed.getAtomMap();
 	data.nPrimary = 0;
 	data.foundTranslatable = false;
 	for(unsigned s=0; s<species.size(); s++)
@@ -409,7 +406,7 @@ void Vibrations::process_mode(IonicMinimizer& imin, int iMode, VibrationsData& d
 void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGradient& Kcur, const vector3<>& dPcur, int iMode){
 	logPrintf("collect_cur_contributions - setting up references.\n"); logFlush();
 	const std::vector<SpaceGroupOp>& sym = e->symmUnperturbed.getMatrices();
-	const auto& atomMap = e->symmUnperturbed.getAtomMap();
+	const std::vector< std::vector< std::vector<int> > >& atomMap = e->symmUnperturbed.getAtomMap();
 	const auto& modes = data.modes;
 	Mode mode = modes[iMode];
 	const auto& iRotInv = data.iRotInv;
