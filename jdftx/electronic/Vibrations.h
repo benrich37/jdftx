@@ -22,8 +22,6 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <core/VectorField.h>
 #include <electronic/IonicMinimizer.h>
-#include <electronic/SpeciesInfo.h>
-#include <set>
 
 class Everything;
 
@@ -39,8 +37,7 @@ struct Mode
 
 // Structure to hold results from computations/analysis for passing to helper functions
 struct VibrationsData
-{	
-	std::vector<Mode> modes; //!< vibrational modes / degrees of freedom
+{	std::vector<Mode> modes; //!< vibrational modes / degrees of freedom
 	int nModes; //!< number of vibrational modes cast to signed integer
 	int nPrimary; //!< number of primary modes
 	int nConfigs; //!< number of configurations to evaluate 1 + 2*nPrimary for central difference, else 1 + nPrimary
