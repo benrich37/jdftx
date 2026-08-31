@@ -43,7 +43,8 @@ struct VibrationsData
 {	
 	std::vector<Mode> modes; //!< vibrational modes / degrees of freedom
 	int nModes; //!< number of vibrational modes cast to signed integer
-	int nPrimary; //!< number of primary modes (in the irredicuble wedge)
+	int nPrimary; //!< number of primary modes
+	int nConfigs; //!< number of configurations to evaluate 1 + 2*nPrimary for central difference, else 1 + nPrimary
 	bool foundTranslatable; //!< whether any of the modes are trans
 	std::vector<unsigned> iRotInv; //!< mapping from symmetry operation index to its inverse (for symmetrization)
 	std::vector<IonicGradient> ds; //!< ionic gradients for each configuration 

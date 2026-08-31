@@ -140,13 +140,14 @@ void Vibrations::calculate()
 			return;
 		}
 	}
-	logPrintf("Clearing mult/ds from memory.\n"); logFlush();
-	data.mult.clear();
-	data.ds.clear();
 
 	//Correct for multiple countings:
 	logPrintf("Accounting for multiplicity.\n"); logFlush();
 	account_for_multiplicity(data);
+
+	logPrintf("Clearing mult/ds from memory.\n"); logFlush();
+	data.mult.clear();
+	data.ds.clear();
 	//Fill in modes set by translation symmetry, if any:
 	logPrintf("Filling in modes set by translation symmetry.\n"); logFlush();
 	fill_in_trans_sym_modes(data);
@@ -260,9 +261,9 @@ void Vibrations::construct_modes(VibrationsData& data)
 
 void Vibrations::construct_maps(VibrationsData& data)
 {	logPrintf("Constructing maps - creating references.\n"); logFlush();
-	int nConfigs = 1 + data.nPrimary * (centralDiff ? 2 : 1);
+	data.nConfigs = 1 + data.nPrimary * (centralDiff ? 2 : 1);
 	data.iModeToConfigs.resize(data.nModes);
-	data.ds.resize(nConfigs);
+	data.ds.resize(data.nConfigs);
 	const std::vector<Mode>& modes = data.modes;
 	std::vector<std::vector<int>>& iModeToConfigs = data.iModeToConfigs;
 	std::vector<IonicGradient>& ds = data.ds;
@@ -475,10 +476,6 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 							a2, Kcur.at(mode2.s).size(), mode2.s, mode2.a, inverseRotation);
 					}
 					logPrintf("collect_cur_contributions - i1 = %d, i2 = %d, a2 = %d, mode2.s = %d, mode2.a = %d, iRotInv[iRot] = %d\n", i1, i2, a2, mode2.s, mode2.a, iRotInv[iRot]); logFlush();
-					// logPrintf("Kcur species=%d/%d, atom=%d/%d, rotation=%d/%d\n",
-					// 			mode2.s, Kcur.size(),
-					// 			a2, Kcur.at(mode2.s).size(),
-					// 			inverseRotation, iRotInv.size());
 					logPrintf("Kcur species=%u/", mode2.s); logFlush();
 					logPrintf("%d, ", static_cast<int>(Kcur.size())); logFlush();
 					logPrintf("atom=%u/", a2); logFlush();
@@ -507,10 +504,11 @@ void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGrad
 void Vibrations::account_for_multiplicity(VibrationsData& data){
 	logPrintf("account_for_multiplicity - inverting mult.\n"); logFlush();
 	//Invert multiplicity matrixZero out  modes to be set by translational symmetry:
-	for(int i=0; i<data.nModes; i++)
+	for(int i=0; i<data.nModes; i++){
+		logPrintf("account_for_multiplicity - inverting mult - at %d\n", i); logFlush();
 		// data.mult[i] = data.modes[i].fromTranslation ? 0. : 1./data.mult[i];
 		data.mult.at(i) = data.modes.at(i).fromTranslation ? 0. : 1./data.mult.at(i);
-	
+	}
 	//Correct for multiple counting:
 	logPrintf("account_for_multiplicity - correcting K and dP.\n"); logFlush();
 	data.K = data.mult * data.K;
