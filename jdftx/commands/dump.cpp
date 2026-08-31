@@ -627,7 +627,7 @@ EnumStringMap<VibrationsMember> vibMap
 	VM_omegaResolution, "omegaResolution",
 	VM_dumpK, "dumpK",
 	VM_iConfiguration, "iConfiguration",
-	VM_nConfigurations, "nConfigurations",
+	VM_nConfigurations, "nConfigurations"
 );
 
 struct CommandVibrations : public Command
