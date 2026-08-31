@@ -132,8 +132,6 @@ void Vibrations::calculate()
 	//Correct for multiple countings:
 	account_for_multiplicity(data);
 
-	data.mult.clear();
-	data.ds.clear();
 	//Fill in modes set by translation symmetry, if any:
 	fill_in_trans_sym_modes(data);
 
