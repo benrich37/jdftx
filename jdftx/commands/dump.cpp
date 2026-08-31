@@ -613,7 +613,6 @@ enum VibrationsMember
 	VM_dumpK,
 	VM_iConfiguration,
 	VM_nConfigurations,
-	VM_collectConfigurations,
 	VM_Delim
 };
 
@@ -629,7 +628,6 @@ EnumStringMap<VibrationsMember> vibMap
 	VM_dumpK, "dumpK",
 	VM_iConfiguration, "iConfiguration",
 	VM_nConfigurations, "nConfigurations",
-	VM_collectConfigurations, "collectConfigurations"
 );
 
 struct CommandVibrations : public Command
@@ -685,7 +683,6 @@ struct CommandVibrations : public Command
 				case VM_T: pl.get(e.vibrations->T, 298., "T", true); e.vibrations->T *= Kelvin; break;
 				case VM_omegaResolution: pl.get(e.vibrations->omegaResolution, 1e-4, "omegaResolution", true); break;
 				case VM_dumpK: pl.get(e.vibrations->dumpK, false, boolMap, "dumpK", true); break;
-				case VM_collectConfigurations: pl.get(e.vibrations->collectConfigurations, true, boolMap, "collectConfigurations", true); break;
 				case VM_iConfiguration: pl.get(e.vibrations->iConfiguration, -1, "iConfiguration", true); break;
 				case VM_nConfigurations: pl.get(e.vibrations->nConfigurations, -1, "nConfigurations", true); break;
 				case VM_Delim: return; //end of input
