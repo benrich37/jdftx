@@ -81,10 +81,11 @@ void Vibrations::calculate()
 	//      (default)       ||                                     ||        (default)                       
         
 	logPrintf("iConfiguration = %d, nConfigurations = %d\n", iConfiguration, nConfigurations);
+	int nConfigs = 1 + data.nPrimary * (centralDiff ? 2 : 1);
 	bool startSet = (iConfiguration>=0);
 	bool lenSet = (nConfigurations>=0);
 	iConfigStart = startSet ? iConfiguration : 0;
-	iConfigStop = lenSet ? iConfigStart + nConfigurations : data.nModes + 1;
+	iConfigStop = lenSet ? iConfigStart + nConfigurations : nConfigs + 1;
 	logPrintf("iConfigStart = %d, iConfigStop = %d\n", iConfigStart, iConfigStop);
 	computeOnly = startSet or lenSet; //If either of these are set, do not bother in anything besides computing and writing grad and Pel
 	logPrintf("computeOnly = %d\n", computeOnly);
