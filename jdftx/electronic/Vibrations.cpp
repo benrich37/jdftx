@@ -334,6 +334,32 @@ void Vibrations::compute_iConfig(IonicMinimizer& imin, IonicGradient& d, IonicGr
 	imin.step(d, -dr); //restore to unperturbed configuration
 }
 
+// string get_arb_fname(const Everything& e, const std::string& prefix, int iConfig)
+// {	return e.dump.getFilename(string((prefix + std::to_string(iConfig)).c_str()));
+// }
+
+
+bool missing_files(const Everything& e, const int iConfig)
+{
+	// string grad_fname = get_arb_fname(e, "grad", iConfig);
+	// string Pel_fname = get_arb_fname(e, "Pel", iConfig);
+	// std::vector<string> req_fnames = {grad_fname, Pel_fname};
+	std::vector<string> req_fnames = {e.dump.getFilename("grad"), e.dump.getFilename("Pel")};
+	for(string fname: req_fnames)
+	{	
+		FILE* fp = fopen(fname.c_str(), "rb");
+		if(!fp) return true;
+		else fclose(fp);
+	}
+	return false;
+}
+
+string get_updated_dump_format(Everything* e, const std::string& prefix, const int iConfig)
+{	ostringstream oss; oss << prefix << "." << iConfig << ".$@#!"; //placeholder for $VAR
+	string fnamePattern = e->dump.getFilename(oss.str()); //(because dump variable name cannot contain $VAR)
+	fnamePattern.replace(fnamePattern.find("$@#!"), 4, "$VAR"); //replace placeholder with $VAR
+	return fnamePattern;
+}
 
 // Helper function to:
 // first: Check if the grad/Pel files exist for the configuration index iConfig,
@@ -344,19 +370,11 @@ void Vibrations::compute_iConfig(IonicMinimizer& imin, IonicGradient& d, IonicGr
 void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<IonicGradient>& ds, IonicGradient& grad, vector3<>& Pel, int iConfig)
 {	//Compute forces and dipole derivatives for this configuration
 	logPrintf("compute_or_collect_iConfig - setting fnames.\n"); logFlush();
-	string grad_fname = e->dump.getFilename(string(("grad" + std::to_string(iConfig)).c_str()));
-	string Pel_fname = e->dump.getFilename(string(("Pel" + std::to_string(iConfig)).c_str()));
-	bool perform_compute = false;
-	std::vector<string> req_fnames = {grad_fname, Pel_fname};
-	logPrintf("compute_or_collect_iConfig - check for file pre-existence.\n"); logFlush();
-	for(const string& fname: req_fnames)
-	{	FILE* fp = fopen(fname.c_str(), "rb");
-		if(!fp){
-			perform_compute = true;
-			break;
-		}
-		else fclose(fp);
-	} // Compute and write the files if they are missing
+	e->dump.format = get_updated_dump_format(e, "vib", iConfig);
+	// string grad_fname = get_arb_fname(*e, "grad", iConfig);
+	// string Pel_fname = get_arb_fname(*e, "Pel", iConfig);
+	bool perform_compute = missing_files(*e, iConfig);
+	// Compute and write the files if they are missing
 	if(perform_compute){
 		logPrintf("compute_or_collect_iConfig - setting up compute for iConfig.\n"); logFlush();
 		IonicGradient& d = ds[iConfig];
@@ -364,13 +382,15 @@ void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<Io
 		const int& nConfigs = ds.size();
 		logPrintf("Completed %d of %d configurations.\n", iConfig+1, nConfigs);
 		logPrintf("compute_or_collect_iConfig - writing grad.\n"); logFlush();
-		grad.write(grad_fname.c_str());
+		// grad.write(grad_fname.c_str());
+		grad.write(e->dump.getFilename("grad").c_str());
 		matrix Pel_mat = zeroes(3,1);
 		for (int k=0; k<3; k++){
 			Pel_mat(k,0) = Pel[k];
 		}
 		logPrintf("compute_or_collect_iConfig - writing Pel.\n"); logFlush();
-		Pel_mat.write(Pel_fname.c_str());
+		// Pel_mat.write(Pel_fname.c_str());
+		Pel_mat.write(e->dump.getFilename("Pel").c_str());
 		if(iConfig == 0){
 			e->dump(DumpFreq_Ionic, iConfig);
 		}
@@ -378,15 +398,16 @@ void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<Io
 	else if(!computeOnly){
 		logPrintf("compute_or_collect_iConfig - reading grad.\n"); logFlush();
 		grad.init(e->iInfo);
-		grad.read(grad_fname.c_str());
+		// grad.read(grad_fname.c_str());
+		grad.read(e->dump.getFilename("grad").c_str());
 		matrix Pel_mat = zeroes(3,1);
-		// matrix3<> Pel_mat(1, 3, 3);
 		logPrintf("compute_or_collect_iConfig - reading Pel.\n"); logFlush();
-		// logPrintf("compute_or_collect_iConfig - reading to PelMat.\n"); logFlush();
-		Pel_mat.read(Pel_fname.c_str());
-		// logPrintf("compute_or_collect_iConfig - referencing Pel_data.\n"); logFlush();
+		logPrintf("compute_or_collect_iConfig - reading to PelMat.\n"); logFlush();
+		// Pel_mat.read(Pel_fname.c_str());
+		Pel_mat.read(e->dump.getFilename("Pel").c_str());
+		logPrintf("compute_or_collect_iConfig - referencing Pel_data.\n"); logFlush();
 		complex *Pel_data = Pel_mat.data();
-		// logPrintf("compute_or_collect_iConfig - looping through k.\n"); logFlush();
+		logPrintf("compute_or_collect_iConfig - looping through k.\n"); logFlush();
 		for (int k=0; k<3; k++){
 			Pel[k] += Pel_data[Pel_mat.index(k,0)].real();
 		}
