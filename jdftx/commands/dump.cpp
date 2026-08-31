@@ -701,7 +701,6 @@ struct CommandVibrations : public Command
 		logPrintf("\\\n\tT %g", e.vibrations->T/Kelvin);
 		logPrintf("\\\n\tomegaResolution %g", e.vibrations->omegaResolution);
 		logPrintf("\\\n\tdumpK %s", boolMap.getString(e.vibrations->dumpK));
-		logPrintf("\\\n\tcollectConfigurations %s", boolMap.getString(e.vibrations->collectConfigurations));
 		logPrintf("\\\n\tiConfiguration %d", e.vibrations->iConfiguration);
 		logPrintf("\\\n\tnConfigurations %d", e.vibrations->nConfigurations);
 	}
