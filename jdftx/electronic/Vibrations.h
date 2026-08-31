@@ -84,7 +84,6 @@ public:
 	double T; //!< ionic temperature used for entropy and free energy estimation
 	double omegaResolution; //!< frequency resolution used for identifying and reporting degeneracies
 	bool dumpK; //!< whether to dump the Hessian
-	bool collectConfigurations;
 	int iConfiguration; //!< index of configuration being evaluated (for checkpointing)
 	int nConfigurations; //!< total number of configurations to evaluate (for checkpointing)
 	

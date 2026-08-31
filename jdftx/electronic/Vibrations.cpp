@@ -29,7 +29,7 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 
 Vibrations::Vibrations() : dr(0.01), centralDiff(false), useConstraints(false),
 translationSym(true), rotationSym(false), omegaMin(2e-4), T(298*Kelvin), omegaResolution(1e-4), 
-dumpK(false), collectConfigurations(true), iConfiguration(-1), nConfigurations(-1),
+dumpK(false), iConfiguration(-1), nConfigurations(-1),
 iConfigStart(0), iConfigStop(0), computeOnly(false)
 {
 }
