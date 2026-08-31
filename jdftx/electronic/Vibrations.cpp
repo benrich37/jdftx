@@ -360,12 +360,16 @@ void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<Io
 	}
 	else if(!computeOnly){
 		logPrintf("compute_or_collect_iConfig - reading grad.\n"); logFlush();
+		grad.init(e->iInfo);
 		grad.read(grad_fname.c_str());
 		matrix Pel_mat = zeroes(3,1);
 		// matrix3<> Pel_mat(1, 3, 3);
 		logPrintf("compute_or_collect_iConfig - reading Pel.\n"); logFlush();
+		// logPrintf("compute_or_collect_iConfig - reading to PelMat.\n"); logFlush();
 		Pel_mat.read(Pel_fname.c_str());
+		// logPrintf("compute_or_collect_iConfig - referencing Pel_data.\n"); logFlush();
 		complex *Pel_data = Pel_mat.data();
+		// logPrintf("compute_or_collect_iConfig - looping through k.\n"); logFlush();
 		for (int k=0; k<3; k++){
 			Pel[k] += Pel_data[Pel_mat.index(k,0)].real();
 		}
@@ -379,11 +383,11 @@ void Vibrations::process_mode(IonicMinimizer& imin, int iMode, VibrationsData& d
 	if(mode.isPrimary){
 		logPrintf("Processing mode - setting/initializing references.\n"); logFlush();
 		IonicGradient gradPlus, gradMinus;
-		gradPlus.init(e->iInfo);
-		gradMinus.init(e->iInfo);
-		// vector3<> PelPlus, PelMinus;
-		vector3<> PelPlus = vector3<>(0,0,0);
-		vector3<> PelMinus = vector3<>(0,0,0);
+		// gradPlus.init(e->iInfo);
+		// gradMinus.init(e->iInfo);
+		vector3<> PelPlus, PelMinus;
+		// vector3<> PelPlus = vector3<>(0,0,0);
+		// vector3<> PelMinus = vector3<>(0,0,0);
 		std::vector<IonicGradient>& ds = data.ds;
 		std::vector<int> iConfigs = data.iModeToConfigs[iMode];
 		IonicGradient Kcur; 
