@@ -96,7 +96,6 @@ private:
 	std::map<DumpFrequency,int> interval; //!< for each frequency, dump every interval times
 	std::map<DumpFrequency,string> formatFreq; //!< frequency-dependent format override
 	friend class Phonon;
-	friend class Vibrations;
 	friend class DefectSupercell;
 	friend struct CommandDump;
 	friend struct CommandDumpName;
