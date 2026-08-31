@@ -46,7 +46,6 @@ struct Mode
 using AtomMap = std::vector< std::vector< std::vector<int> > >;
 
 
-
 // Structure to hold results from computations/analysis for passing to helper functions
 struct VibrationsData
 {	
@@ -110,11 +109,11 @@ private:
 	void collect_cur_contributions(VibrationsData& data, const IonicGradient& Kcur, const vector3<>& dPcur, int iMode);
 	void account_for_multiplicity(VibrationsData& data); //account for multiplicity of each mode in the Hessian and dipole derivative matrices
 	void fill_in_trans_sym_modes(VibrationsData& data); //fill in the translation and rotation modes in the Hessian and dipole derivative matrices
-	void apply_projections(VibrationsData& data);
-	void solve_modes(VibrationsData& data);
-	void process_solved_modes(VibrationsData& data);
-	void print_modes(VibrationsData& data);
-	void print_free_energy(VibrationsData& data);
+	void apply_projections(VibrationsData& data); //project out translation and rotation modes from the Hessian and dipole derivative matrices
+	void solve_modes(VibrationsData& data); //solve the eigenvalue problem for the Hessian and dipole derivative matrices
+	void process_solved_modes(VibrationsData& data); //process the solved modes to identify zero and real modes, and their degeneracies
+	void print_modes(VibrationsData& data); //print the vibrational modes and their frequencies to the output file
+	void print_free_energy(VibrationsData& data); //print the vibrational free energy components to the output file
 };
 
 //! @}
