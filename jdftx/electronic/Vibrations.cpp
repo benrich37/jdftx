@@ -322,7 +322,6 @@ bool missing_files(const Everything& e, const int iConfig)
 // - is this okay? Or is there a more elegant way that I'm missing?
 void Vibrations::compute_or_collect_iConfig(IonicMinimizer& imin, std::vector<IonicGradient>& ds, IonicGradient& grad, vector3<>& Pel, int iConfig)
 {	//Compute forces and dipole derivatives for this configuration
-	logPrintf("compute_or_collect_iConfig - setting fnames.\n"); logFlush();
 	string grad_fname = get_arb_fname(*e, "grad", iConfig);
 	string Pel_fname = get_arb_fname(*e, "Pel", iConfig);
 	bool perform_compute = missing_files(*e, iConfig);
@@ -400,7 +399,6 @@ void Vibrations::process_mode(IonicMinimizer& imin, int iMode, VibrationsData& d
 
 
 void Vibrations::collect_cur_contributions(VibrationsData& data, const IonicGradient& Kcur, const vector3<>& dPcur, int iMode){
-	logPrintf("collect_cur_contributions - setting up references.\n"); logFlush();
 	const std::vector<SpaceGroupOp>& sym = e->symmUnperturbed.getMatrices();
 	const std::vector< std::vector< std::vector<int> > >& atomMap = e->symmUnperturbed.getAtomMap();
 	const auto& modes = data.modes;
