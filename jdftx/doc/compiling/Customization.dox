@@ -90,6 +90,10 @@ Also consider compiling with the following optional flags:
 
 + <b>-D CudaAwareMPI=yes</b>: If your MPI library supports direct transfers from GPU memory,
   this flag will speed up MPI data transfers between GPUs.
+  With this flag, the GPU is synchronized before each MPI call on GPU data, because
+  asynchronous kernels may otherwise still be writing the buffers that MPI reads
+  (seen as wrong energies / failed convergence with multiple GPU processes).
+  This sync is on by default; set "export JDFTX_GPU_SYNC_MPI=0" to disable it.
 
 + Prior to GPU runs, consider setting the environment variable JDFTX_CACHE_SIZE
   to a large fraction of the memory size in MB / GPU.  For example, say

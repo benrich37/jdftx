@@ -100,9 +100,11 @@ bool gpuInit(FILE* fpLog, const MPIUtil* mpiHostGpu, double* nGPUs)
 	#endif
 
 	#ifdef CUDA_AWARE_MPI
-	//Decide whether to sync GPU before MPI:
+	//Decide whether to sync GPU before MPI (on by default; disable with JDFTX_GPU_SYNC_MPI=0/no/off):
+	gpuSyncMPI = true;
 	const char* envGpuSyncMPI = getenv("JDFTX_GPU_SYNC_MPI");
-	if(envGpuSyncMPI) gpuSyncMPI = true;
+	if(envGpuSyncMPI and (!strcmp(envGpuSyncMPI,"0") or !strcasecmp(envGpuSyncMPI,"no") or !strcasecmp(envGpuSyncMPI,"off")))
+		gpuSyncMPI = false;
 	fprintf(fpLog, "gpuInit: sync before MPI is %s\n", gpuSyncMPI ? "on" : "off");
 	#endif
 	return true;
