@@ -11,8 +11,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   the local branch has unpushed saves: push or reconcile them first. Loading overwrites the working copy, so
 >   save any local edits before you load.
 > - **After every edit, save and push:** `git save-claude-md "what changed" && git push origin claude-md`.
->   `save-claude-md` commits the working-tree file to `claude-md` without switching branches. It is a local alias
->   in `.git/config`; copy it from another clone if it's missing.
+>   `save-claude-md` commits the working-tree file to `claude-md` without switching branches. Both aliases are
+>   local to each clone's `.git/config`; if `git save-claude-md` says "not a git command", run the setup below.
+>
+> **First-time setup in a new clone** (run once from the repository root; safe to re-run). Before setup you can
+> read this file with `git fetch origin claude-md && git show origin/claude-md:CLAUDE.md`.
+> ```bash
+> git fetch origin claude-md:claude-md
+> grep -qxF /CLAUDE.md .git/info/exclude || echo /CLAUDE.md >> .git/info/exclude
+> git config alias.load-claude-md '!git show claude-md:CLAUDE.md > CLAUDE.md && echo "CLAUDE.md restored from claude-md"'
+> git config alias.save-claude-md '!f() { parent=$(git rev-parse --verify -q refs/heads/claude-md) || { echo "no local claude-md branch (git fetch origin claude-md:claude-md)"; return 1; }; blob=$(git hash-object -w CLAUDE.md) || return 1; if [ "$blob" = "$(git rev-parse claude-md:CLAUDE.md)" ]; then echo "CLAUDE.md unchanged; nothing to save"; return 0; fi; tree=$(printf "100644 blob %s\tCLAUDE.md\n" "$blob" | git mktree) && commit=$(git commit-tree "$tree" -p "$parent" -m "${1:-Update CLAUDE.md}") && git update-ref -m "save-claude-md" refs/heads/claude-md "$commit" "$parent" && echo "claude-md -> $(git rev-parse --short "$commit"); push with: git push origin claude-md"; }; f'
+> git load-claude-md
+> ```
+> Check it: `git status` shows no `CLAUDE.md`, and `git save-claude-md` prints "unchanged". Saving makes a commit, so
+> it needs a git identity. If `git config user.email` prints nothing, set `user.name` and `user.email` first
+> (`benrich37`, `benjamin.rich@colorado.edu`, as on earlier `claude-md` commits).
 
 ## Repository layout
 
