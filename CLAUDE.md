@@ -111,6 +111,49 @@ Running a freshly built binary:
   used `-C gpu -A m4025_g -q debug -N 1 -c 32 --ntasks-per-node=4 --gpus-per-task=1 --gpu-bind=none`. The
   `--gpu-bind=none` causes a harmless Cray GTL warning ("not using the same device it did during gtl_init").
 
+### Anvil (Purdue, A100)
+
+A working GPU build lives in `/anvil/projects/x-chm260113/Software/JDFTx/`: `anvil-env.sh` (modules),
+`run-cmake-gpu.sh` (cmake), `build-gpu/`, and `examples/gold_sp/asubmit.sh` (a job script known to work). Its
+`jdftx-git` clones upstream `shankar1729/jdftx` (not the fork) at `52548a96` (2026-07-13), with `CudaAwareMPI=OFF`.
+Those files are the ground truth; the notes below explain why they look the way they do. This is a shared group
+directory, so ask before rebuilding in place.
+
+Environment:
+- `module load modtree/gpu` comes first. Anvil's GPU software is a separate module tree, and without it the
+  CUDA builds of OpenMPI are invisible. Then load, in this order: `gcc/13.3.0 cuda/12.6.1 openmpi/4.1.6-cu12.6.1
+  openblas/0.3.27 fftw/3.3.10 gsl/2.7`. OpenMPI and OpenBLAS appear only after `gcc/13.3.0` is loaded. Pair the
+  `-cu12.6.1` OpenMPI with `cuda/12.6.1`, not with another CUDA version.
+- Anvil has no MKL under any name. Use `-D EnableMKL=no -D BLA_VENDOR=OpenBLAS`, and don't copy MKL settings
+  from Bridges.
+- The GPUs are A100s: `CUDAARCHS=80`, `-D CUDA_ARCH=compute_80 -D CUDA_CODE=sm_80` (Bridges used 70).
+- Login nodes have the CUDA toolkit but only a stub driver. Compiling works there; running `jdftx_gpu` doesn't.
+
+Build: `source anvil-env.sh`, then run `bash ../run-cmake-gpu.sh && make -j16` from inside `build-gpu/`.
+- Source `anvil-env.sh`; don't execute it. The `.cu` targets find GSL headers only through `CPATH` from the gsl
+  module, while the C++ targets get them from CMake. `run-cmake-gpu.sh` loads the same modules, but they are
+  unloaded when its subshell exits. `make` then fails with `gsl/gsl_integration.h: No such file or directory` on
+  `Coulomb.cu`/`BlasExtra.cu` while every `.cpp` file compiles.
+- `run-cmake-gpu.sh` also sets `CMAKE_CUDA_HOST_COMPILER="$(which g++)"` (otherwise nvcc can fall back to the
+  system gcc 8) and passes explicit GSL and FFTW `-I` flags in `CMAKE_CUDA_FLAGS`. Keep both.
+- A changed CUDA host compiler does not take effect in an existing CMake cache. After any toolchain change,
+  `rm -rf build-gpu` and reconfigure.
+
+Running:
+- Every job script must `source anvil-env.sh`. The binary's RPATH covers gcc and OpenMPI but not OpenBLAS, FFTW, GSL
+  or the CUDA libraries. Without the modules, `ldd` reports them as "not found".
+- Launch with `mpirun -np N <path>/jdftx_gpu`, as `asubmit.sh` does. A bare `srun` fails at `MPI_Init` with
+  "OPAL ERROR: Unreachable in ext3x_client.c". This OpenMPI was built `--without-pmi` against PMIx 5.0.3, while
+  Slurm offers only `pmi2` and `pmix_v2` (`srun --mpi=list`). Don't "simplify" the launch to `srun`.
+- Allocations use the `-gpu` account suffix: `-A chm260113-gpu`. The test partition is `gpu-debug`.
+- Thread count: the binary reads `-c`, then `SLURM_CPUS_PER_TASK`, then `OMP_NUM_THREADS`. With none of these set,
+  it splits the node's cores among its ranks (`core/Util.cpp`), so set `--cpus-per-task`. It does not read
+  `JDFTX_NUM_PROCS` in either capitalization: the `JDFTx_NUM_PROCS=1` in `asubmit.sh` did nothing, and gold_sp
+  ran 2 ranks × 64 threads.
+- `MPICH_GPU_SUPPORT_ENABLED` is an MPICH/Cray variable and does nothing under OpenMPI.
+- This build predates `544d0e78`, so it ignores `JDFTX_GPU_SYNC_MPI`. It is also built without `CudaAwareMPI`,
+  which the race described above requires. Pull `544d0e78` or later before rebuilding with `CudaAwareMPI=yes`.
+
 ## Tests
 
 Regression tests are ctest-driven bash harnesses in `jdftx/test/` (see `jdftx/test/README`):
