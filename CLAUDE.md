@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **This file lives only on the orphan branch `claude-md`.** Never commit it to `master` or any code branch, so it
+> can't end up in PRs from this fork. Each clone ignores it locally (`/CLAUDE.md` in `.git/info/exclude`, not
+> `.gitignore`), and you must never add it with `git add -f`. Claude Code agents on several machines share it
+> through `origin/claude-md`, so keep it in sync:
+> - **Before reading it, update from the remote:** `git fetch origin claude-md:claude-md && git load-claude-md`
+>   (without the alias: `git show claude-md:CLAUDE.md > CLAUDE.md`). If the fetch is refused as non-fast-forward,
+>   the local branch has unpushed saves: push or reconcile them first. Loading overwrites the working copy, so
+>   save any local edits before you load.
+> - **After every edit, save and push:** `git save-claude-md "what changed" && git push origin claude-md`.
+>   `save-claude-md` commits the working-tree file to `claude-md` without switching branches. It is a local alias
+>   in `.git/config`; copy it from another clone if it's missing.
+
 ## Repository layout
 
 The CMake source root is `jdftx/`, not the repository root. The repo root also contains `fluid1D/`
