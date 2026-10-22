@@ -26,6 +26,66 @@ make -j
   `CudaAwareMPI`, `PinnedHostMemory`, `CudaManagedMemory`, `EnableCuSolver`.
 - `make doc` builds the Doxygen manual (command reference pages are generated from command source; see below).
 
+## Cluster builds (HPC; e.g. Perlmutter, Anvil)
+
+Read this before compiling on any cluster. The Perlmutter recipe below is known-good (verified 2026-10-20:
+fork master `54315e95`, PrgEnv-gnu, CUDA 13.2, A100, `make -j16` on a login node takes ~9 min). Other clusters
+need their own modules and paths, but the same structure.
+```bash
+module use --append /global/cfs/cdirs/m4025/Software/Perlmutter/modules
+module load jdftx/gpu   # depends_on: gpu PrgEnv-gnu cmake craype-x86-milan cray-fftw cray-hdf5-parallel libxc
+mkdir build-gpu && cd build-gpu            # sibling of the git clone
+CC=cc CXX=CC CUDAARCHS=80 cmake \
+    -D EnableProfiling=yes -D EnableHDF5=yes -D EnableLibXC=yes \
+    -D EnableLibSci=yes -D EnableScaLAPACK=yes \
+    -D FFTW3_PATH=${FFTW_ROOT} -D GSL_PATH=${GSL_ROOT} \
+    -D EnableCUDA=yes -D EnableCuSolver=yes -D CudaAwareMPI=yes -D PinnedHostMemory=yes \
+    -D CMAKE_LIBRARY_PATH="${LD_LIBRARY_PATH//:/;}" \
+    ../jdftx-git/jdftx
+make -j16
+```
+Translating to another cluster:
+- `CC`/`CXX` must be the MPI compiler wrappers (`cc`/`CC` on Cray; `mpicc`/`mpicxx` elsewhere). If several MPI
+  stacks are installed, pass the one FFTW was built against by full path (`-D MPI_CXX_COMPILER=...`,
+  `-D MPI_C_COMPILER=...`). The user's Mac build needed this because Open MPI and MPICH are both installed.
+- `CUDAARCHS` is the GPU compute capability (80 = A100, 90 = H100). For a CPU-only build, drop the CUDA options.
+- `EnableLibSci` is Cray-only. Elsewhere, take BLAS/LAPACK from `-D EnableMKL=yes` (Intel stacks) or let CMake
+  find system/OpenBLAS libraries. `EnableScaLAPACK`, `EnableHDF5` and `EnableLibXC` are optional; turn on only what
+  the cluster's modules provide.
+- `CMAKE_LIBRARY_PATH="${LD_LIBRARY_PATH//:/;}"` lets CMake find libraries that modules expose only through
+  `LD_LIBRARY_PATH`. Run cmake, make *and jobs* with the same modules loaded. Perlmutter job scripts load no
+  modules and rely on `sbatch` exporting the submitting shell's environment (the default `--export=ALL`).
+- Set `-D CudaAwareMPI=yes` only if the MPI library really is CUDA-aware (Cray MPICH with
+  `MPICH_GPU_SUPPORT_ENABLED=1`; Open MPI built with CUDA). Otherwise leave it OFF.
+- Never modify group or shared installs (e.g. `/global/cfs/cdirs/m4025/**` on Perlmutter). Build in your own
+  scratch directory.
+
+**CUDA-aware MPI race (any GPU build with `CudaAwareMPI=yes` run with more than one MPI process):** MPI can read
+device buffers before the asynchronous kernels or cuBLAS calls writing them finish. The symptom is silently wrong
+energies and failed convergence: "Bad step direction", "Step increased F" scaling with alpha, and "Probably at
+roundoff error limit" at |grad| ~1e-3. With 1 k-point and z-spin, any np>=2 is affected because the two spins
+sit on different ranks. Confirmed on Perlmutter: NO3H in CANDLE LinearPCM gives first `LCAOMinimize: Iter: 0`
+F = -57.9042 Ha at np=1 but -56.9602 at np=4. With the fix, np=4 converges to the np=1 energy within 1e-10 Ha.
+- Upstream fix `544d0e78` (Sundararaman, 2026-10-02) syncs in `ManagedMemory::dataMPI()`, but **only if env
+  `JDFTX_GPU_SYNC_MPI` is set**. Any value enables it, even `0`. Fork master contains it, so export
+  `JDFTX_GPU_SYNC_MPI=1` in job scripts. Branch `gpu-sync-mpi-default` makes it default-on (`=0`/`no`/`off`
+  disables it); that branch compiles but has not yet been run as a full build.
+- Always check that `out` says `gpuInit: sync before MPI is on`. Builds older than `544d0e78` print no such line
+  and ignore the variable; those, including the Perlmutter m4025 shared build as of 2026-10, need rebuilding.
+- Quick check for a new GPU build: run the same small spin-polarized molecule at np=1 and np=4 (same node,
+  `--gpus-per-task=1`) and compare the first `LCAOMinimize: Iter:   0` energy. With the sync on, the
+  two agreed to 1.6e-5 Ha. A difference near 1 Ha means the race is present.
+
+Running a freshly built binary:
+- Call it by full path. A loaded JDFTx module may put another `jdftx_gpu` on `PATH` and its library directory
+  first in `LD_LIBRARY_PATH`. Check with `ldd <build>/jdftx_gpu | grep libjdftx` that the library resolves into
+  your build directory. That holds on Perlmutter because the binary carries `DT_RPATH`; a toolchain that links
+  with `RUNPATH` (`--enable-new-dtags`) lets `LD_LIBRARY_PATH` win instead.
+- `JDFTX_MEMPOOL_SIZE` is deprecated; use `JDFTX_CACHE_SIZE` (MB per GPU).
+- Use the debug queue with short limits for tests, and ask the user before submitting any job. Perlmutter tests
+  used `-C gpu -A m4025_g -q debug -N 1 -c 32 --ntasks-per-node=4 --gpus-per-task=1 --gpu-bind=none`. The
+  `--gpu-bind=none` causes a harmless Cray GTL warning ("not using the same device it did during gtl_init").
+
 ## Tests
 
 Regression tests are ctest-driven bash harnesses in `jdftx/test/` (see `jdftx/test/README`):
