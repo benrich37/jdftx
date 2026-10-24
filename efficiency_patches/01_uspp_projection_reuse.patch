@@ -1,0 +1,337 @@
+diff --git a/jdftx/electronic/ColumnBundle.h b/jdftx/electronic/ColumnBundle.h
+index ddbf6769..23924cca 100644
+--- a/jdftx/electronic/ColumnBundle.h
++++ b/jdftx/electronic/ColumnBundle.h
+@@ -151,6 +151,7 @@ ColumnBundle L(const ColumnBundle &Y); //!< Apply Laplacian
+ ColumnBundle Linv(const ColumnBundle &Y); //!< Apply Laplacian inverse
+ matrix3<> Lstress(const ColumnBundle &Y, const diagMatrix& F); //!< Compute lattice vector derivative of Tr[Y^LYF] (used for KE stress calculation)
+ ColumnBundle O(const ColumnBundle &Y, std::vector<matrix>* VdagY=0); //!< Apply overlap (and optionally retrieve pseudopotential projections for later reuse)
++matrix dagO(const ColumnBundle &Y1, const std::vector<matrix>& VdagY1, const ColumnBundle &Y2, const std::vector<matrix>& VdagY2); //!< Compute Y1^O(Y2), reusing pseudopotential projections VdagY1 and VdagY2 (avoids applying O to Y2)
+ ColumnBundle D(const ColumnBundle &Y, int iDir); //!< Compute the cartesian gradient of a column bundle in direction# iDir
+ ColumnBundle D(const ColumnBundle& in, const vector3<>& dir); //!< Directional derivative of column bundle along (cartesian direction) dir
+ ColumnBundle DD(const ColumnBundle &Y, int iDir, int jDir); //!< Compute second spatial derivative of a column bundle along directions# iDir, jDir
+diff --git a/jdftx/electronic/ColumnBundleOperators.cpp b/jdftx/electronic/ColumnBundleOperators.cpp
+index ca0a1595..a5ca0dd9 100644
+--- a/jdftx/electronic/ColumnBundleOperators.cpp
++++ b/jdftx/electronic/ColumnBundleOperators.cpp
+@@ -342,6 +342,13 @@ ColumnBundle O(const ColumnBundle &Y, std::vector<matrix>* VdagY)
+ 	return OY;
+ }
+ 
++matrix dagO(const ColumnBundle &Y1, const std::vector<matrix>& VdagY1, const ColumnBundle &Y2, const std::vector<matrix>& VdagY2)
++{	matrix Y1dagOY2 = Y1 ^ Y2;
++	Y1dagOY2 *= Y1.basis->gInfo->detR; //basic planewave overlap
++	Y1.basis->iInfo->augmentOverlap(VdagY1, VdagY2, Y1dagOY2); //pseudopotential augmentation
++	return Y1dagOY2;
++}
++
+ //Compute cartesian gradient of column bundle in direction #iDir
+ #ifdef GPU_ENABLED
+ void reducedD_gpu(int nbasis, int ncols, const complex* Ydata, complex* DYdata,
+diff --git a/jdftx/electronic/ElecMinimizer.cpp b/jdftx/electronic/ElecMinimizer.cpp
+index 182c4c49..7cb673d9 100644
+--- a/jdftx/electronic/ElecMinimizer.cpp
++++ b/jdftx/electronic/ElecMinimizer.cpp
+@@ -34,12 +34,14 @@ void ElecGradient::init(const Everything& e)
+ {	eInfo = &e.eInfo;
+ 	C.resize(eInfo->nStates);
+ 	Haux.resize(eInfo->nStates);
++	VdagC.assign(eInfo->nStates, std::vector<matrix>());
+ }
+ 
+ ElecGradient& ElecGradient::operator*=(double alpha)
+ {	for(int q=eInfo->qStart; q<eInfo->qStop; q++)
+ 	{	if(C[q]) C[q] *= alpha;
+ 		if(Haux[q]) Haux[q] *= alpha;
++		if(VdagC.size()) for(matrix& VdagCq_sp: VdagC[q]) if(VdagCq_sp) VdagCq_sp *= alpha;
+ 	}
+ 	return *this;
+ }
+@@ -47,7 +49,27 @@ ElecGradient& ElecGradient::operator*=(double alpha)
+ void axpy(double alpha, const ElecGradient& x, ElecGradient& y)
+ {	assert(x.eInfo == y.eInfo);
+ 	for(int q=x.eInfo->qStart; q<x.eInfo->qStop; q++)
+-	{	if(x.C[q]) { if(y.C[q]) axpy(alpha, x.C[q], y.C[q]); else y.C[q] = alpha*x.C[q]; }
++	{	if(x.C[q])
++		{	//Projections remain available only if available for both x and y (or y is zero):
++			bool xProj = x.VdagC.size() and x.VdagC[q].size();
++			bool yProj = y.VdagC.size() and y.VdagC[q].size();
++			if(y.VdagC.size() != x.C.size()) y.VdagC.resize(x.C.size());
++			if(y.C[q])
++			{	axpy(alpha, x.C[q], y.C[q]);
++				if(xProj and yProj)
++				{	for(unsigned sp=0; sp<x.VdagC[q].size(); sp++)
++						if(x.VdagC[q][sp]) axpy(alpha, x.VdagC[q][sp], y.VdagC[q][sp]);
++				}
++				else y.VdagC[q].clear();
++			}
++			else
++			{	y.C[q] = alpha*x.C[q];
++				y.VdagC[q].clear();
++				if(xProj)
++					for(const matrix& VdagCq_sp: x.VdagC[q])
++						y.VdagC[q].push_back(VdagCq_sp ? matrix(alpha*VdagCq_sp) : matrix());
++			}
++		}
+ 		if(x.Haux[q]) { if(y.Haux[q]) axpy(alpha, x.Haux[q], y.Haux[q]); else y.Haux[q] = alpha*x.Haux[q]; }
+ 	}
+ }
+@@ -70,6 +92,7 @@ ElecGradient clone(const ElecGradient& x)
+ 
+ void randomize(ElecGradient& x)
+ {	randomize(x.C, *x.eInfo);
++	x.VdagC.clear(); //projections no longer valid
+ 	for(int q=x.eInfo->qStart; q<x.eInfo->qStop; q++)
+ 		if(x.Haux[q])
+ 		{	randomize(x.Haux[q]);
+@@ -161,9 +184,17 @@ void ElecMinimizer::step(const ElecGradient& dir, double alpha)
+ {	assert(dir.eInfo == &eInfo);
+ 	for(int q=eInfo.qStart; q<eInfo.qStop; q++)
+ 	{	axpy(alpha, rotExists ? dir.C[q]*rotPrevC[q] : dir.C[q], eVars.C[q]);
++		//Update projections linearly if available for dir (avoids recomputing them in orthonormalize):
++		bool projected = dir.VdagC.size() and dir.VdagC[q].size();
++		if(projected)
++		{	assert(eVars.VdagC[q].size() == dir.VdagC[q].size());
++			for(unsigned sp=0; sp<dir.VdagC[q].size(); sp++)
++				if(dir.VdagC[q][sp])
++					axpy(alpha, rotExists ? dir.VdagC[q][sp]*rotPrevC[q] : dir.VdagC[q][sp], eVars.VdagC[q][sp]);
++		}
+ 		if(eInfo.fillingsUpdate==ElecInfo::FillingsConst && eInfo.scalarFillings)
+ 		{	//Constant scalar fillings: no rotations required
+-			eVars.orthonormalize(q);
++			eVars.orthonormalize(q, 0, projected);
+ 		}
+ 		else
+ 		{	//Haux or non-scalar fillings: rotations required
+@@ -181,7 +212,7 @@ void ElecMinimizer::step(const ElecGradient& dir, double alpha)
+ 				rot = cis(alpha * dir.Haux[q]); //auxiliary matrix directly generates rotations
+ 			}
+ 			matrix rotC = rot;
+-			eVars.orthonormalize(q, &rotC);
++			eVars.orthonormalize(q, &rotC, projected);
+ 			rotPrev[q] = rotPrev[q] * rot;
+ 			rotPrevC[q] = rotPrevC[q] * rotC;
+ 			rotPrevCinv[q] = inv(rotC) * rotPrevCinv[q];
+@@ -262,8 +293,17 @@ bool ElecMinimizer::report(int iter)
+ void ElecMinimizer::constrain(ElecGradient& dir)
+ {	assert(dir.eInfo == &eInfo);
+ 	//Project component of search direction along current wavefunctions:
++	//(also cache the projections of the search direction for use in step)
++	dir.VdagC.resize(eInfo.nStates);
+ 	for(int q=eInfo.qStart; q<eInfo.qStop; q++)
+-		dir.C[q] -= eVars.C[q] * (eVars.C[q]^O(dir.C[q]));
++	{	std::vector<matrix>& VdagDir = dir.VdagC[q];
++		VdagDir.clear();
++		e.iInfo.project(dir.C[q], VdagDir);
++		matrix CdagOdir = dagO(eVars.C[q], eVars.VdagC[q], dir.C[q], VdagDir);
++		dir.C[q] -= eVars.C[q] * CdagOdir;
++		for(unsigned sp=0; sp<VdagDir.size(); sp++)
++			if(VdagDir[sp]) VdagDir[sp] -= eVars.VdagC[q][sp] * CdagOdir;
++	}
+ }
+ 
+ double ElecMinimizer::sync(double x) const
+diff --git a/jdftx/electronic/ElecMinimizer.h b/jdftx/electronic/ElecMinimizer.h
+index 2845fe3d..800f757d 100644
+--- a/jdftx/electronic/ElecMinimizer.h
++++ b/jdftx/electronic/ElecMinimizer.h
+@@ -35,6 +35,7 @@ class matrix;
+ struct ElecGradient
+ {	std::vector<ColumnBundle> C; //!< wavefunctions
+ 	std::vector<matrix> Haux; //!< auxiliary Hamiltonian
++	std::vector<std::vector<matrix>> VdagC; //!< pseudopotential projections of C, if available (set by ElecMinimizer::constrain and propagated through linear operations)
+ 	const ElecInfo* eInfo;
+ 	
+ 	void init(const Everything& e); //!< initialize C and Haux with the correct sizes for everything
+diff --git a/jdftx/electronic/ElecVars.cpp b/jdftx/electronic/ElecVars.cpp
+index 753ff190..f22822ca 100644
+--- a/jdftx/electronic/ElecVars.cpp
++++ b/jdftx/electronic/ElecVars.cpp
+@@ -414,11 +414,14 @@ double ElecVars::elecEnergyAndGrad(Energies& ener, ElecGradient* grad, ElecGradi
+ 	bool saveHC = need_Hsub and e->dump.count(std::make_pair(DumpFreq_End, DumpHC));
+ 	std::vector<ColumnBundle> HCsave(eInfo.nStates); //saved copy for HC output (if needed)
+ 	for(int q=eInfo.qStart; q<e->eInfo.qStop; q++)
+-	{	double KEq = applyHamiltonian(q, F[q], HC[q], ener, need_Hsub);
++	{	bool orthoGrad = grad and (not saveHC); //include orthonormality contribution within applyHamiltonian (unless HC is needed for output)
++		double KEq = applyHamiltonian(q, F[q], HC[q], ener, need_Hsub, true, orthoGrad);
+ 		if(grad) //Calculate wavefunction gradients:
+ 		{	const QuantumNumber& qnum = eInfo.qnums[q];
+-			if(saveHC) HCsave[q] = HC[q]; //stash HC[q] before modifying it below
+-			HC[q] -= O(C[q]) * Hsub[q]; //Include orthonormality contribution
++			if(saveHC)
++			{	HCsave[q] = HC[q]; //stash HC[q] before modifying it below
++				HC[q] -= O(C[q]) * Hsub[q]; //Include orthonormality contribution
++			}
+ 			grad->C[q] = HC[q] * (F[q]*qnum.weight);
+ 			if(Kgrad)
+ 			{	double Nq = qnum.weight*trace(F[q]);
+@@ -647,16 +650,19 @@ ScalarFieldArray ElecVars::calcDensity() const
+ 	return density;
+ }
+ 
+-void ElecVars::orthonormalize(int q, matrix* extraRotation)
++void ElecVars::orthonormalize(int q, matrix* extraRotation, bool projected)
+ {	assert(e->eInfo.isMine(q));
+-	VdagC[q].clear();
+-	matrix rot = orthoMatrix(C[q]^O(C[q], &VdagC[q])); //Compute matrix that orthonormalizes wavefunctions
++	if(not projected)
++	{	VdagC[q].clear();
++		e->iInfo.project(C[q], VdagC[q]);
++	}
++	matrix rot = orthoMatrix(dagO(C[q], VdagC[q], C[q], VdagC[q])); //Compute matrix that orthonormalizes wavefunctions
+ 	if(extraRotation) *extraRotation = (rot = rot * (*extraRotation)); //set rot and extraRotation to the net transformation
+ 	C[q] = C[q] * rot;
+ 	e->iInfo.project(C[q], VdagC[q], &rot); //update the atomic projections
+ }
+ 
+-double ElecVars::applyHamiltonian(int q, const diagMatrix& Fq, ColumnBundle& HCq, Energies& ener, bool need_Hsub, bool diagonalize_Hsub)
++double ElecVars::applyHamiltonian(int q, const diagMatrix& Fq, ColumnBundle& HCq, Energies& ener, bool need_Hsub, bool diagonalize_Hsub, bool orthoGrad)
+ {	assert(C[q]); //make sure wavefunction is available for this state
+ 	const QuantumNumber& qnum = e->eInfo.qnums[q];
+ 	std::vector<matrix> HVdagCq(e->iInfo.species.size());
+@@ -691,13 +697,23 @@ double ElecVars::applyHamiltonian(int q, const diagMatrix& Fq, ColumnBundle& HCq
+ 	
+ 	//Nonlocal pseudopotentials:
+ 	ener.E["Enl"] += qnum.weight * e->iInfo.EnlAndGrad(qnum, Fq, VdagC[q], HVdagCq);
+-	if(HCq) e->iInfo.projectGrad(HVdagCq, C[q], HCq);
+ 	
+-	//Compute subspace hamiltonian if needed:
++	//Compute subspace hamiltonian if needed (using projections for the nonlocal part, before it is added to HCq):
+ 	if(need_Hsub)
+ 	{	Hsub[q] = C[q] ^ HCq;
++		for(unsigned sp=0; sp<HVdagCq.size(); sp++)
++			if(HVdagCq[sp]) Hsub[q] += dagger(VdagC[q][sp]) * HVdagCq[sp];
+ 		if(diagonalize_Hsub)
+ 			Hsub[q].diagonalize(Hsub_evecs[q], Hsub_eigs[q]);
+ 	}
++	
++	if(HCq)
++	{	if(orthoGrad) //Include orthonormality contribution: HCq -= O(C[q]) * Hsub[q]
++		{	assert(need_Hsub);
++			HCq -= C[q] * (e->gInfo.detR * Hsub[q]);
++			e->iInfo.augmentOverlapGrad(VdagC[q], -Hsub[q], HVdagCq); //propagated to HCq along with nonlocal part below
++		}
++		e->iInfo.projectGrad(HVdagCq, C[q], HCq);
++	}
+ 	return KEq;
+ }
+diff --git a/jdftx/electronic/ElecVars.h b/jdftx/electronic/ElecVars.h
+index 8fccb8ba..cc03a15e 100644
+--- a/jdftx/electronic/ElecVars.h
++++ b/jdftx/electronic/ElecVars.h
+@@ -121,12 +121,12 @@ public:
+ 	//! Orthonormalise wavefunctions, with an optional extra rotation
+ 	//! If extraRotation is present, it is applied after symmetric orthononormalization,
+ 	//! and on output extraRotation contains the net transformation applied to the wavefunctions.
+-	void orthonormalize(int q, matrix* extraRotation=0);
++	void orthonormalize(int q, matrix* extraRotation=0, bool projected=false); //!< projected = whether VdagC[q] already contains the projections of (unnormalized) C[q]
+ 	
+ 	//! Applies the Kohn-Sham Hamiltonian on the orthonormal wavefunctions C, and computes Hsub if necessary, for a single quantum number
+ 	//! If Hsub is computed, diagonalize_Hsub controls whether it is diagonalized (no effect if need_Hsub=false).
+ 	//! Returns the Kinetic energy contribution from q, which can be used for the inverse kinetic preconditioner
+-	double applyHamiltonian(int q, const diagMatrix& Fq, ColumnBundle& HCq, Energies& ener, bool need_Hsub = false, bool diagonalize_Hsub=true);
++	double applyHamiltonian(int q, const diagMatrix& Fq, ColumnBundle& HCq, Energies& ener, bool need_Hsub = false, bool diagonalize_Hsub=true, bool orthoGrad=false);
+ 	
+ private:
+ 	const Everything* e;
+diff --git a/jdftx/electronic/IonInfo.cpp b/jdftx/electronic/IonInfo.cpp
+index fc630521..1465bab4 100644
+--- a/jdftx/electronic/IonInfo.cpp
++++ b/jdftx/electronic/IonInfo.cpp
+@@ -340,6 +340,16 @@ void IonInfo::augmentOverlap(const ColumnBundle& Cq, ColumnBundle& OCq, std::vec
+ 		species[sp]->augmentOverlap(Cq, OCq, VdagCq ? &VdagCq->at(sp) : 0);
+ }
+ 
++void IonInfo::augmentOverlap(const std::vector<matrix>& VdagY1, const std::vector<matrix>& VdagY2, matrix& Y1dagOY2) const
++{	for(unsigned sp=0; sp<species.size(); sp++)
++		species[sp]->augmentOverlap(VdagY1[sp], VdagY2[sp], Y1dagOY2);
++}
++
++void IonInfo::augmentOverlapGrad(const std::vector<matrix>& VdagCq, const matrix& M, std::vector<matrix>& HVdagCq) const
++{	for(unsigned sp=0; sp<species.size(); sp++)
++		species[sp]->augmentOverlapGrad(VdagCq[sp], M, HVdagCq[sp]);
++}
++
+ void IonInfo::augmentDensityInit() const
+ {	for(auto sp: species) ((SpeciesInfo&)(*sp)).augmentDensityInit();
+ }
+@@ -376,10 +386,11 @@ const std::vector<matrix> IonInfo::getE_nAug()
+ 	return E_nAug;
+ }
+ 
+-void IonInfo::project(const ColumnBundle& Cq, std::vector<matrix>& VdagCq, matrix* rotExisting) const
++void IonInfo::project(const ColumnBundle& Cq, std::vector<matrix>& VdagCq, matrix* rotExisting, bool augmentedOnly) const
+ {	VdagCq.resize(species.size());
+ 	for(unsigned sp=0; sp<e->iInfo.species.size(); sp++)
+-	{	if(rotExisting && VdagCq[sp]) VdagCq[sp] = VdagCq[sp] * (*rotExisting); //rotate and keep the existing projections
++	{	if(augmentedOnly && !species[sp]->QintAll.nRows()) continue;
++		if(rotExisting && VdagCq[sp]) VdagCq[sp] = VdagCq[sp] * (*rotExisting); //rotate and keep the existing projections
+ 		else
+ 		{	auto V = e->iInfo.species[sp]->getV(Cq);
+ 			if(V) VdagCq[sp] = (*V) ^ Cq;
+diff --git a/jdftx/electronic/IonInfo.h b/jdftx/electronic/IonInfo.h
+index a48af843..73b9bfcd 100644
+--- a/jdftx/electronic/IonInfo.h
++++ b/jdftx/electronic/IonInfo.h
+@@ -101,6 +101,12 @@ public:
+ 	//! Accumulate pseudopotential dependent contribution to the overlap in OCq
+ 	void augmentOverlap(const ColumnBundle& Cq, ColumnBundle& OCq, std::vector<matrix>* VdagCq=0) const;
+ 	
++	//! Accumulate pseudopotential dependent contribution to the overlap matrix Y1^O(Y2), given projections VdagY1 and VdagY2
++	void augmentOverlap(const std::vector<matrix>& VdagY1, const std::vector<matrix>& VdagY2, matrix& Y1dagOY2) const;
++	
++	//! Accumulate the projector-space coefficients of the pseudopotential contribution to O(Cq)*M (given projections VdagCq) in HVdagCq, for use with projectGrad
++	void augmentOverlapGrad(const std::vector<matrix>& VdagCq, const matrix& M, std::vector<matrix>& HVdagCq) const;
++	
+ 	//Multi-stage density augmentation and gradient propagation (see corresponding functions in SpeciesInfo)
+ 	void augmentDensityInit() const; //!< initialize density augmentation
+ 	void augmentDensitySpherical(const QuantumNumber& qnum, const diagMatrix& Fq, const std::vector<matrix>& VdagCq, const std::vector<matrix>* dVdagCqL = 0, const std::vector<matrix>* dVdagCqR = 0) const; //!< calculate density augmentation in spherical functions. Parameters dVdagCqL and/or dVdagCqR are needed for perturbation theory.
+@@ -111,7 +117,7 @@ public:
+ 	void setE_nAug(const std::vector<matrix> E_nAug);
+ 	const std::vector<matrix> getE_nAug();
+ 	
+-	void project(const ColumnBundle& Cq, std::vector<matrix>& VdagCq, matrix* rotExisting=0) const; //Update pseudopotential projections (optionally retain non-zero ones with specified rotation)
++	void project(const ColumnBundle& Cq, std::vector<matrix>& VdagCq, matrix* rotExisting=0, bool augmentedOnly=false) const; //Update pseudopotential projections (optionally retain non-zero ones with specified rotation, or only compute those of species with overlap augmentation)
+ 	void projectGrad(const std::vector<matrix>& HVdagCq, const ColumnBundle& Cq, ColumnBundle& HCq) const; //Propagate projected gradient (HVdagCq) to full gradient (HCq)
+ 	
+ 	//! Compute U corrections (DFT+U in the simplified rotationally-invariant scheme [Dudarev et al, Phys. Rev. B 57, 1505])
+diff --git a/jdftx/electronic/SpeciesInfo.h b/jdftx/electronic/SpeciesInfo.h
+index bb3bdc55..ae10dee7 100644
+--- a/jdftx/electronic/SpeciesInfo.h
++++ b/jdftx/electronic/SpeciesInfo.h
+@@ -103,6 +103,12 @@ public:
+ 	//! Accumulate pseudopotential contribution to the overlap in OCq
+ 	void augmentOverlap(const ColumnBundle& Cq, ColumnBundle& OCq, matrix* VdagCq=0) const;
+ 	
++	//! Accumulate pseudopotential contribution to the overlap matrix Y1^O(Y2), given projections VdagY1 and VdagY2
++	void augmentOverlap(const matrix& VdagY1, const matrix& VdagY2, matrix& Y1dagOY2) const;
++	
++	//! Accumulate the projector-space coefficients of the pseudopotential contribution to O(Cq)*M (given projections VdagCq) in HVdagCq
++	void augmentOverlapGrad(const matrix& VdagCq, const matrix& M, matrix& HVdagCq) const;
++	
+ 	//! Derivative of augmented overlap operator w.r.t. atomic position
+ 	void augmentOverlapDeriv(const ColumnBundle& Cq, ColumnBundle& OCq, ColumnBundle& V, ColumnBundle& dV) const;
+ 	
+diff --git a/jdftx/electronic/SpeciesInfo_augment.cpp b/jdftx/electronic/SpeciesInfo_augment.cpp
+index e1e44fb4..12cf8b7c 100644
+--- a/jdftx/electronic/SpeciesInfo_augment.cpp
++++ b/jdftx/electronic/SpeciesInfo_augment.cpp
+@@ -37,6 +37,18 @@ void SpeciesInfo::augmentOverlap(const ColumnBundle& Cq, ColumnBundle& OCq, matr
+ 	watch.stop();
+ }
+ 
++void SpeciesInfo::augmentOverlap(const matrix& VdagY1, const matrix& VdagY2, matrix& Y1dagOY2) const
++{	if(!atpos.size()) return; //unused species
++	if(!Qint.size()) return; //no overlap augmentation
++	Y1dagOY2 += dagger(VdagY1) * (tiledBlockMatrix(QintAll,atpos.size()) * VdagY2);
++}
++
++void SpeciesInfo::augmentOverlapGrad(const matrix& VdagCq, const matrix& M, matrix& HVdagCq) const
++{	if(!atpos.size()) return; //unused species
++	if(!Qint.size()) return; //no overlap augmentation
++	HVdagCq += tiledBlockMatrix(QintAll,atpos.size()) * (VdagCq * M);
++}
++
+ void SpeciesInfo::augmentOverlapDeriv(const ColumnBundle& Cq, ColumnBundle& OCq, ColumnBundle& V, ColumnBundle& dV) const
+ {	static StopWatch watch("augmentOverlapDeriv"); watch.start();
+ 	if(!atpos.size()) return; //unused species
