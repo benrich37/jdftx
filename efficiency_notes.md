@@ -81,7 +81,7 @@ Projector products dominate the per-iteration cost there as well, so I'd expect 
 ## Other findings (no code changes)
 
 - **GPU-MPI race:** build 52548a96 predates the upstream GPU-MPI sync fix (544d0e78). np = 4 GPU runs should use a newer build with `JDFTX_GPU_SYNC_MPI=1`.
-- **cuSolver:** `EnableCuSolver` defaults to OFF. Without it, the per-step nBands^2 Haux diagonalization (and the new `invsqrt`) run in CPU LAPACK in GPU builds. Check the build's `CMakeCache.txt`.
+- **cuSolver:** `EnableCuSolver` defaults to OFF. Without it, the per-step nBands^2 Haux diagonalization (and the new `invsqrt`) run in CPU LAPACK in GPU builds. The Perlmutter recipe in CLAUDE.md already enables it. Whether the shared m4025 build used for the analysed run has it is unknown; check its `CMakeCache.txt`.
 - **Initial vacuum solve:** on fresh wavefunctions with a fluid, the vacuum pre-solve ran 100 iterations without converging. That took about 1650 s, about 12% of the first job.
 - **Convergence threshold:** `energyDiffThreshold 1e-8` on a ~1e4 Ha system sits at or below the observed noise floor.
 
