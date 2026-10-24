@@ -219,3 +219,22 @@ On `vib_chk`, `vibrations` saves each configuration's forces and dipole as `grad
 `iConfiguration`/`nConfigurations` compute a range without analysis. When testing, always use a fresh
 directory: stale files from an earlier build or input are silently reused, and `make testclean` does not
 delete them.
+
+## Branch notes: electronic minimizer efficiency (`efficiency_testing`)
+
+Rationale, tests and A/B timings are in `efficiency_notes.md` on that branch (patches in `efficiency_patches/`).
+Two commits on top of e305ab5d, tested on CPU only so far (ctest 11/11):
+- **Projection reuse** (`bd608a26`): with ultrasoft psps, O(C) = C·detR + V·Q·(V^C), and V^C products
+  (nProj×nBands×nbasis) dominate an ElecMinimize iteration because nProj > nBands. `ElecVars::VdagC[q]` must
+  always hold the projections of the current `C[q]`: `dagO()` builds overlaps from cached projections,
+  `applyHamiltonian(..., orthoGrad=true)` folds `-O(C)·Hsub` into `projectGrad`, and `ElecGradient::VdagC`
+  (set in `ElecMinimizer::constrain`, propagated by `axpy`/`*=`, cleared by `init`/`randomize`) lets `step`
+  update projections linearly via `orthonormalize(q, rot, projected=true)`. Code that modifies `C` must keep
+  `VdagC` consistent or clear the direction's cached projections.
+- **Löwdin orthonormalization** (`f047b9b0`): `orthoMatrix()` is Cholesky (non-symmetric). When fillings vary
+  per band (Haux/smearing), it mixes occupied and empty states, so linmin's trial step plus step back is not
+  reversible (spurious "Step increased G"/"Undoing step" jumps up to ~1e-2 Ha). `ElecVars::orthonormalize`
+  therefore uses `invsqrt()` unless fillings are constant and uniform.
+- Profile with `-D EnableProfiling=yes` (per-function `PROFILER:` lines at the end of the output). Compare
+  builds side by side at equal thread counts; iteration counts, not wall time, are the fair metric when runs
+  share the CPU.
