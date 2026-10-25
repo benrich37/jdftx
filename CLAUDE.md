@@ -306,12 +306,15 @@ Test B (default thresholds, `nIterations 150`; jobs 60229252/53/55, all `SYNC_OK
 
 - p1 follows base (|dG| <= 2.5e-10 for 25 iterations, 3e-8 at the end) and is 28% faster in wall time (13.7 vs 18.2 min).
 - **Löwdin does not remove the GPU noise floor.** In p12, "Undoing step" still leaves G about 1.2e-7 higher (iters 49->50, 59->60).
-- **The floor comes from the LinearPCM solve, not the minimizer or the MPI race.** Each energy evaluation warm-starts
-  the fluid solve (`fluid-minimize knormThreshold 1e-11`). Near convergence most solves "Complete after 0 iterations", so the
-  fluid state is stale. The largest jumps (p12 iters 44 and 46: +4.4e-7, +2.5e-7) come right after the only solves that
-  took 2 iterations. Later evaluations at tiny alpha (0 fluid iterations) stay ~1e-7 higher, and stepping back restores C but not
-  the fluid state. Energy evaluation itself is repeatable (base and p1 agree to 1e-10 Ha). Cholesky vs Löwdin was the
-  fix for a different hysteresis, the 7.8e-3 Ha jumps of the CPU MnO2 analog, and that one does not occur here.
+- **The floor is not the MPI race, and Löwdin does not fix it; the leading suspect (unproven) is the warm-started LinearPCM
+  solve.** The signature: after one trial evaluation, every later evaluation sits ~1.2e-7 Ha higher, even at alpha 8e-6, and
+  the offset survives "Undoing step" (p12 iters 49->50). So something history-dependent changes; C itself is restored. The fluid
+  state is the only warm-started iterative solve inside the energy (`fluid-minimize knormThreshold 1e-11`, i.e. sqrt(|r.z|)),
+  and near convergence most solves "Complete after 0 iterations". But `LinearPCM::get_Adiel_and_grad_internal` uses a
+  first-order-correct energy, so a fluid residual should change G only at second order. Not yet explained. (The 4.4e-7 at
+  p12 iter 44 is an ordinary too-large trial step; the reduced step lowered G.) Energy evaluation is repeatable to 1e-10
+  (base vs p1). The 7.8e-3 Ha Cholesky hysteresis of the CPU MnO2 analog does not occur here.
+  Proposed test: rerun B_p1 with `fluid-minimize knormThreshold 1e-14` (and 1e-9). If the floor scales with the threshold, it is the fluid.
 
 When they finish:
 1. Check `run_info.txt`, which should show `SYNC_OK`, a libjdftx path in the matching `build-<b>`, and 0 shared JDFTx builds in `LD_LIBRARY_PATH`.
