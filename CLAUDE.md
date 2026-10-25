@@ -296,12 +296,22 @@ To resubmit one (the job script is `efficiency_gpu/job.sh <test> <build>`):
 `cd efficiency_gpu && sbatch -A m5414_g -q regular -t <limit> -J eff<T>-<b> -o runs/<T>_<b>/slurm-%j.log job.sh <T> <b>`.
 Before a rerun, remove `out` (`-o` appends). The state files in the run dir are untouched copies, since nothing dumps State.
 
-Results so far:
-- **B_base** (60229252, done 2026-10-25): 52 iterations, 18.4 s/iter mean (16.4 median; failed steps add energy evaluations), stopped with
-  "Probably at roundoff error limit". G_final = -9575.920310639. There were 9 "Step increased G" events of 4e-9 to 2.1e-7 Ha,
-  and they do not shrink with alpha (6e-8 Ha at alpha 8e-6). After an "Undoing step", G comes back 6e-8 Ha higher than before the step
-  (iters 44->45). There were also "Bad step direction" events, and 9 iterations after |G-Gf| < 1e-6. **So with the sync on, the
-  ~1e-7 Ha floor is still there: it is not the MPI race.** Its hysteresis fits the Cholesky non-reversibility that Löwdin targets; B_p12 decides.
+Test B (default thresholds, `nIterations 150`; jobs 60229252/53/55, all `SYNC_OK`):
+
+| build | iters | stop | s/iter (mean / median) | "Step increased G" (n, max) | iters after \|G-Gf\|<1e-6 | G_final |
+|---|---|---|---|---|---|---|
+| base | 52 | roundoff limit | 18.39 / 16.39 | 9, 2.1e-7 | 9 | -9575.920310639 |
+| p1 | 52 | roundoff limit | 13.29 / 11.81 | 9, 2.0e-7 | 9 | -9575.920310672 |
+| p12 | 60 | roundoff limit | 13.31 / 11.91 | 12, 4.4e-7 | 12 | -9575.920310883 |
+
+- p1 follows base (|dG| <= 2.5e-10 for 25 iterations, 3e-8 at the end) and is 28% faster in wall time (13.7 vs 18.2 min).
+- **Löwdin does not remove the GPU noise floor.** In p12, "Undoing step" still leaves G about 1.2e-7 higher (iters 49->50, 59->60).
+- **The floor comes from the LinearPCM solve, not the minimizer or the MPI race.** Each energy evaluation warm-starts
+  the fluid solve (`fluid-minimize knormThreshold 1e-11`). Near convergence most solves "Complete after 0 iterations", so the
+  fluid state is stale. The largest jumps (p12 iters 44 and 46: +4.4e-7, +2.5e-7) come right after the only solves that
+  took 2 iterations. Later evaluations at tiny alpha (0 fluid iterations) stay ~1e-7 higher, and stepping back restores C but not
+  the fluid state. Energy evaluation itself is repeatable (base and p1 agree to 1e-10 Ha). Cholesky vs Löwdin was the
+  fix for a different hysteresis, the 7.8e-3 Ha jumps of the CPU MnO2 analog, and that one does not occur here.
 
 When they finish:
 1. Check `run_info.txt`, which should show `SYNC_OK`, a libjdftx path in the matching `build-<b>`, and 0 shared JDFTx builds in `LD_LIBRARY_PATH`.
