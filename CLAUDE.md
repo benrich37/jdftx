@@ -296,6 +296,13 @@ To resubmit one (the job script is `efficiency_gpu/job.sh <test> <build>`):
 `cd efficiency_gpu && sbatch -A m5414_g -q regular -t <limit> -J eff<T>-<b> -o runs/<T>_<b>/slurm-%j.log job.sh <T> <b>`.
 Before a rerun, remove `out` (`-o` appends). The state files in the run dir are untouched copies, since nothing dumps State.
 
+Results so far:
+- **B_base** (60229252, done 2026-10-25): 52 iterations, 18.4 s/iter mean (16.4 median; failed steps add energy evaluations), stopped with
+  "Probably at roundoff error limit". G_final = -9575.920310639. There were 9 "Step increased G" events of 4e-9 to 2.1e-7 Ha,
+  and they do not shrink with alpha (6e-8 Ha at alpha 8e-6). After an "Undoing step", G comes back 6e-8 Ha higher than before the step
+  (iters 44->45). There were also "Bad step direction" events, and 9 iterations after |G-Gf| < 1e-6. **So with the sync on, the
+  ~1e-7 Ha floor is still there: it is not the MPI race.** Its hysteresis fits the Cholesky non-reversibility that Löwdin targets; B_p12 decides.
+
 When they finish:
 1. Check `run_info.txt`, which should show `SYNC_OK`, a libjdftx path in the matching `build-<b>`, and 0 shared JDFTx builds in `LD_LIBRARY_PATH`.
 2. Run `python3 efficiency_gpu/analyze.py B` and `... analyze.py C`. For each run this prints the s/iter, the stop reason
