@@ -117,7 +117,7 @@ public:
 	void setE_nAug(const std::vector<matrix> E_nAug);
 	const std::vector<matrix> getE_nAug();
 	
-	void project(const ColumnBundle& Cq, std::vector<matrix>& VdagCq, matrix* rotExisting=0, bool augmentedOnly=false) const; //Update pseudopotential projections (optionally retain non-zero ones with specified rotation, or only compute those of species with overlap augmentation)
+	void project(const ColumnBundle& Cq, std::vector<matrix>& VdagCq, matrix* rotExisting=0) const; //Update pseudopotential projections (optionally retain non-zero ones with specified rotation)
 	void projectGrad(const std::vector<matrix>& HVdagCq, const ColumnBundle& Cq, ColumnBundle& HCq) const; //Propagate projected gradient (HVdagCq) to full gradient (HCq)
 	
 	//! Compute U corrections (DFT+U in the simplified rotationally-invariant scheme [Dudarev et al, Phys. Rev. B 57, 1505])

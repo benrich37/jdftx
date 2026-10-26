@@ -386,11 +386,10 @@ const std::vector<matrix> IonInfo::getE_nAug()
 	return E_nAug;
 }
 
-void IonInfo::project(const ColumnBundle& Cq, std::vector<matrix>& VdagCq, matrix* rotExisting, bool augmentedOnly) const
+void IonInfo::project(const ColumnBundle& Cq, std::vector<matrix>& VdagCq, matrix* rotExisting) const
 {	VdagCq.resize(species.size());
 	for(unsigned sp=0; sp<e->iInfo.species.size(); sp++)
-	{	if(augmentedOnly && !species[sp]->QintAll.nRows()) continue;
-		if(rotExisting && VdagCq[sp]) VdagCq[sp] = VdagCq[sp] * (*rotExisting); //rotate and keep the existing projections
+	{	if(rotExisting && VdagCq[sp]) VdagCq[sp] = VdagCq[sp] * (*rotExisting); //rotate and keep the existing projections
 		else
 		{	auto V = e->iInfo.species[sp]->getV(Cq);
 			if(V) VdagCq[sp] = (*V) ^ Cq;
