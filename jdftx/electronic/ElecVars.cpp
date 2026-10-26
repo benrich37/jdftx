@@ -656,13 +656,7 @@ void ElecVars::orthonormalize(int q, matrix* extraRotation, bool projected)
 	{	VdagC[q].clear();
 		e->iInfo.project(C[q], VdagC[q]);
 	}
-	//Compute matrix that orthonormalizes wavefunctions:
-	//--- symmetric (Lowdin) when columns carry distinct fillings, so as to minimally mix states with different fillings
-	//--- (this also makes steps along a constrained direction exactly reversible in ElecMinimizer)
-	const ElecInfo& eInfo = e->eInfo;
-	bool symmetric = extraRotation or not (eInfo.fillingsUpdate==ElecInfo::FillingsConst and eInfo.scalarFillings);
-	matrix CdagOC = dagO(C[q], VdagC[q], C[q], VdagC[q]);
-	matrix rot = symmetric ? invsqrt(CdagOC) : orthoMatrix(CdagOC);
+	matrix rot = orthoMatrix(dagO(C[q], VdagC[q], C[q], VdagC[q])); //Compute matrix that orthonormalizes wavefunctions
 	if(extraRotation) *extraRotation = (rot = rot * (*extraRotation)); //set rot and extraRotation to the net transformation
 	C[q] = C[q] * rot;
 	e->iInfo.project(C[q], VdagC[q], &rot); //update the atomic projections
