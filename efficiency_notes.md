@@ -37,7 +37,7 @@ For ultrasoft pseudopotentials, O(C) = C detR + V Q (V^C). The minimizer recompu
 | `ElecMinimizer::constrain` | `C^O(dir)` forms O(dir) | `dagO()` with V^dir |
 | `ElecMinimizer::step` | `orthonormalize` recomputes V^C | V^C updated linearly from V^dir, cached in `ElecGradient::VdagC` by `constrain` and kept consistent through `axpy` / `*=` |
 
-The net effect is about 9 projector-sized products per state per iteration reduced to about 4. The changes are algebraically exact: trajectories match baseline to about 1e-10 Ha over 25 iterations. When `dump End HC` is requested, the original path is used so that the dumped HC is unchanged.
+The net effect, per state, species and iteration (one trial step and one accepted step), is 9 projector-sized products reduced to 2: orthonormalization 4 → 0, gradient 3 → 1, `constrain` 2 → 1. The GPU profiler counts match this (see Test A). The changes are algebraically exact: trajectories match baseline to about 1e-10 Ha over 25 iterations. When `dump End HC` is requested, the original path is used so that the dumped HC is unchanged.
 
 ## Change 2: Lowdin instead of Cholesky orthonormalization (tested; no improvement; removed)
 
