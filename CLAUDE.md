@@ -283,4 +283,4 @@ Full tables and discussion: "GPU results" in `efficiency_notes.md` on `efficienc
 2. Then use a looser stop for 1e4-Ha systems (`energyDiffThreshold` about 1e-7) to cut the tail.
 3. Try p1 for the 255-atom Ni_B adsorbates on 40GB nodes (45.4 GiB on base, so about 39 GiB expected).
 4. Production builds: change 1 on top of master, without change 2.
-5. The run directories hold 9 copies of the 28 GB `wfns` (about 250 GB). Ask the user before deleting them.
+5. The 9 `wfns` copies were deleted on 2026-10-26 (with the user's OK). The run directories keep `in`, `out`, the small state files and `run_info.txt` (502 MB). A rerun needs `wfns` copied again from the production directory.
