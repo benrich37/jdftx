@@ -1,14 +1,16 @@
 # Efficiency testing notes
 
-Branch `efficiency_testing`, based on upstream e305ab5d. Two independent commits:
+Branch `efficiency_testing`, originally based on upstream e305ab5d, merged with upstream through b3c54e1d on 2026-10-26.
+Two changes were tested:
 
-1. `bd608a26` Reuse ultrasoft pseudopotential projections in ElecMinimizer
-2. `f047b9b0` Use symmetric (Lowdin) orthonormalization when fillings vary per band
+1. `bd608a26` Reuse ultrasoft pseudopotential projections in ElecMinimizer. **Kept**; this is the only code change on the branch.
+2. `f047b9b0` Use symmetric (Lowdin) orthonormalization when fillings vary per band. **Tested and found to show no
+   improvement; removed** by the revert `5c09112b`. See "Change 2" for how to recover it.
 
 CPU testing was on an arm64 Mac (Accelerate BLAS, Release build with `EnableProfiling`).
 The GPU results are in "GPU results" below (Perlmutter, 4 A100-80GB, 2026-10-24/25).
 Summary: change 1 is 27% faster per iteration on GPU, with identical results, and uses 6.5 GiB less memory per GPU.
-Change 2 neither helps nor removes the noise floor on GPU.
+Change 2 neither helped nor removed the noise floor on GPU, so it was removed.
 
 ## Motivation
 
@@ -37,7 +39,15 @@ For ultrasoft pseudopotentials, O(C) = C detR + V Q (V^C). The minimizer recompu
 
 The net effect is about 9 projector-sized products per state per iteration reduced to about 4. The changes are algebraically exact: trajectories match baseline to about 1e-10 Ha over 25 iterations. When `dump End HC` is requested, the original path is used so that the dumped HC is unchanged.
 
-## Change 2: Lowdin instead of Cholesky orthonormalization
+## Change 2: Lowdin instead of Cholesky orthonormalization (tested; no improvement; removed)
+
+**Status:** tested on CPU and GPU and found to show no performance improvement (see "Effect of change 2 on iteration
+counts" and "GPU results"), so it was removed from the branch by the revert `5c09112b`. It can be recovered from any of:
+- the original commit `f047b9b0` (still in the branch history);
+- the git stash entry "efficiency_testing change 2: Lowdin orthonormalization when fillings vary ..." (`git stash list`);
+- `efficiency_patches/not_adopted/02_lowdin_orthonormalize.patch`, which applies on top of change 1.
+
+The rest of this section describes the change as it was tested.
 
 `orthoMatrix()` is Cholesky-based, so it mixes wavefunction columns asymmetrically. With Haux (smearing) fillings, each column carries its own occupation, so Cholesky orthonormalization moves charge between occupied and partially empty states.
 
@@ -48,13 +58,13 @@ On the CPU analog (below), converged to 1e-11:
 - "Undoing step" left G 7.76e-3 Ha higher, with a changed density: EH and Eloc moved by about 0.6 Ha at fixed fillings.
 - With `invsqrt()`, the largest "Step increased G" event is 8e-10 Ha, which is genuine roundoff for |G| = 526 Ha.
 
-Lowdin is now used whenever fillings are not constant and uniform. That includes the `orthonormalize` after ionic steps (`IonicMinimizer::step`) and lattice steps.
+As tested, Lowdin was used whenever fillings are not constant and uniform. That includes the `orthonormalize` after ionic steps (`IonicMinimizer::step`) and lattice steps.
 
 The extra cost is one nBands^3 eigendecomposition per step. This is the same size as the Haux diagonalization that each step already does.
 
 ## Testing
 
-- **Regression suite:** `ctest` passes 11/11 with both changes.
+- **Regression suite:** `ctest` passed 11/11 with both changes, and again with change 1 alone after the upstream merge.
 - **Test system:** a 12-atom MnO2(110) slab analog of the production run.
   - Settings: GBRV 20/100 Ha, PBE + D3BJ, z-spin, AFM initial moments, `add-U Mn d 0.06`, LinearPCM CANDLE with H2O / F- / K+, k-points 2x4x1, Fermi smearing 0.001.
   - Starting state: a converged neutral run.
@@ -198,10 +208,25 @@ differ by at most 1.1e-7 Ha (ionSolvation CANDLE).
    which is marginal but may avoid the 2-2.5x slower managed-memory build.
 4. Production builds: use change 1 (`bd608a26`) on top of master, and leave out change 2.
 
+## Merge with upstream (2026-10-26)
+
+Upstream e305ab5d..b3c54e1d (the `vib_chk` vibrations checkpointing work) changes only `commands/dump.cpp`,
+`electronic/Vibrations.{cpp,h}`, and one comment in `electronic/SpeciesInfo.h`. None of it touches the code that change 1
+modifies. The new vibrations code moves atoms only through `IonicMinimizer::step`, which calls `orthonormalize(q)` with
+the default `projected=false`, so the cached projections are recomputed there as before.
+
+Checks after the merge (CPU):
+- `01_uspp_projection_reuse.patch` (and the not-adopted `02` on top of it) applies cleanly to b3c54e1d, and the result is
+  identical, file for file, to the branch code.
+- After removing change 2, the branch's code differs from upstream b3c54e1d by exactly `01_uspp_projection_reuse.patch`.
+- `ctest`: 11/11, including `vibrations`.
+- MnO2 benchmark (`bench.in`, 25 iterations, baseline and branch side by side at 9 threads): energies agree with the
+  baseline to 6.7e-11 Ha at every iteration, and time per iteration is 3.59 vs 4.50 s (−20%).
+
 ## Other findings (no code changes)
 
 - **GPU-MPI race:** build 52548a96 predates the upstream GPU-MPI sync fix (544d0e78). np = 4 GPU runs should use a newer build with `JDFTX_GPU_SYNC_MPI=1`.
-- **cuSolver:** `EnableCuSolver` defaults to OFF. Without it, the per-step nBands^2 Haux diagonalization (and the new `invsqrt`) run in CPU LAPACK in GPU builds. The Perlmutter recipe in CLAUDE.md already enables it. Whether the shared m4025 build used for the analysed run has it is unknown; check its `CMakeCache.txt`.
+- **cuSolver:** `EnableCuSolver` defaults to OFF. Without it, the per-step nBands^2 Haux diagonalization (and change 2's `invsqrt`, now removed) run in CPU LAPACK in GPU builds. The Perlmutter recipe in CLAUDE.md already enables it. Whether the shared m4025 build used for the analysed run has it is unknown; check its `CMakeCache.txt`.
 - **Initial vacuum solve:** on fresh wavefunctions with a fluid, the vacuum pre-solve ran 100 iterations without converging. That took about 1650 s, about 12% of the first job.
 - **Convergence threshold:** `energyDiffThreshold 1e-8` on a ~1e4 Ha system sits at or below the observed noise floor.
 
@@ -210,16 +235,18 @@ differ by at most 1.1e-7 Ha (ionSolvation CANDLE).
 - ~~A/B on Perlmutter~~: done (see "GPU results"; GPU-specific next steps are listed there).
 - Cap the threshold or iteration count of the initial vacuum pre-solve; it only provides a starting guess.
 - Smaller items:
-  - Use `zherk` for the Hermitian C^C overlap.
-  - Cache the +U atomic orbitals per state (about 3% here).
-  - Apply `dagO` / `augmentOverlapGrad` in BandMinimizer and BandDavidson too.
+  - `zherk` for the Hermitian C^C overlap: tested on GPU, not faster than `zgemm`; not pursued.
+  - Caching the +U atomic orbitals per state: estimated at about 3% for about 1.6 GiB/GPU; not pursued.
+  - Apply `dagO` / `augmentOverlapGrad` in BandMinimizer and BandDavidson too (untested; same algebra as change 1).
 
 ## Reproducing
 
 Local files live in `~/Desktop/jdftx_hold/`:
 - `perf_test/`: inputs (`common.in`, `bench.in`, `tight.in`, `caseB/C/D.in`), outputs, and `run_ab.sh`, which runs the baseline and patched builds side by side.
-- `perf_patches/`: the two patches, plus `all_perf_changes.patch` with both combined.
+- Patch files (in this branch, `efficiency_patches/`): `01_uspp_projection_reuse.patch` (change 1) and
+  `not_adopted/02_lowdin_orthonormalize.patch` (change 2, applies on top of change 1).
 - Builds:
   - `build_base_prof`: baseline e305ab5d.
-  - `build_perf`: this branch.
+  - `build_perf`: changes 1 + 2 as tested before the merge.
+  - `build_merged`: this branch after the upstream merge (change 1 only).
   - All builds are Release builds with `EnableProfiling`.
