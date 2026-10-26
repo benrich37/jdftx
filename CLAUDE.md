@@ -223,7 +223,8 @@ delete them.
 ## Branch notes: electronic minimizer efficiency (`efficiency_testing`)
 
 Rationale, tests and A/B timings are in `efficiency_notes.md` on that branch (patches in `efficiency_patches/`).
-Two commits on top of e305ab5d, tested on CPU only so far (ctest 11/11):
+Merged with upstream through b3c54e1d (2026-10-26); the branch's only code change is projection reuse
+(ctest 11/11 on CPU and GPU; upstream merge checks in `efficiency_notes.md`):
 - **Projection reuse** (`bd608a26`): with ultrasoft psps, O(C) = C·detR + V·Q·(V^C), and V^C products
   (nProj×nBands×nbasis) dominate an ElecMinimize iteration because nProj > nBands. `ElecVars::VdagC[q]` must
   always hold the projections of the current `C[q]`: `dagO()` builds overlaps from cached projections,
@@ -231,10 +232,11 @@ Two commits on top of e305ab5d, tested on CPU only so far (ctest 11/11):
   (set in `ElecMinimizer::constrain`, propagated by `axpy`/`*=`, cleared by `init`/`randomize`) lets `step`
   update projections linearly via `orthonormalize(q, rot, projected=true)`. Code that modifies `C` must keep
   `VdagC` consistent or clear the direction's cached projections.
-- **Löwdin orthonormalization** (`f047b9b0`): `orthoMatrix()` is Cholesky (non-symmetric). When fillings vary
-  per band (Haux/smearing), it mixes occupied and empty states, so linmin's trial step plus step back is not
-  reversible (spurious "Step increased G"/"Undoing step" jumps up to ~1e-2 Ha). `ElecVars::orthonormalize`
-  therefore uses `invsqrt()` unless fillings are constant and uniform.
+- **Löwdin orthonormalization** (`f047b9b0`): tested, no performance gain, **removed** (revert `5c09112b`).
+  `orthoMatrix()` is Cholesky (non-symmetric); with per-band fillings it mixes occupied and empty states, so linmin's
+  trial step plus step back is not reversible (jumps up to ~1e-2 Ha seen in a CPU test system). `invsqrt()` fixed that
+  but needed more iterations on GPU. Recoverable from `git stash list`, the commit, or
+  `efficiency_patches/not_adopted/02_lowdin_orthonormalize.patch`. `ElecVars::orthonormalize` uses Cholesky again.
 - Profile with `-D EnableProfiling=yes` (per-function `PROFILER:` lines at the end of the output). Compare
   builds side by side at equal thread counts; iteration counts, not wall time, are the fair metric when runs
   share the CPU.
