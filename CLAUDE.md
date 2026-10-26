@@ -239,91 +239,48 @@ Two commits on top of e305ab5d, tested on CPU only so far (ctest 11/11):
   builds side by side at equal thread counts; iteration counts, not wall time, are the fair metric when runs
   share the CPU.
 
-#### GPU results (Perlmutter, 2026-10-24) — IN PROGRESS: Tests B and C still queued
+#### GPU results (Perlmutter, 2026-10-24/25)
 
-Builds: Perlmutter recipe above, `EnableCuSolver=yes`, `CudaAwareMPI=yes`, `EnableProfiling=yes`, CUDA 13.2. Each build is
-in `/pscratch/sd/b/beri9208/claude_scratch/efficiency_gpu/build-<name>`, built from worktree `src-<name>`
-(worktrees of `jdftx_edits/jdftx-git`; `src-p12` has branch `efficiency_testing` checked out):
-base = `54315e95` (fork master), p1 = `bd608a26` (projection reuse), p12 = `fe9df38d` (`efficiency_testing` HEAD: + Löwdin).
-Jobs unload `jdftx/gpu`, which the user's login profile loads and which puts the shared m4025 build on `PATH`/`LD_LIBRARY_PATH`.
-They load only its dependency modules (`gpu PrgEnv-gnu cmake craype-x86-milan cray-fftw cray-hdf5-parallel libxc`) and set
-`JDFTX_GPU_SYNC_MPI=1`, `JDFTX_CACHE_SIZE=36000`, `MPICH_GPU_SUPPORT_ENABLED=1`. Each run's `run_info.txt` records the commit,
-the node, the `ldd` libjdftx path, and `SYNC_OK` (the sync line was found in `out`).
+Full tables and discussion: "GPU results" in `efficiency_notes.md` on `efficiency_testing` (commit `f4466321`).
+- **Builds** (Perlmutter recipe, cuSolver on, CudaAwareMPI, profiling): base `54315e95` (master), p1 `bd608a26`,
+  p12 `fe9df38d`.
+  - They live in `/pscratch/sd/b/beri9208/claude_scratch/efficiency_gpu/build-*`. Raw outputs are in `.../efficiency_gpu/runs/{A,B,C}_{base,p1,p12}/`,
+    together with `analyze.py`, `analyzeC.py` and `job.sh` in the parent directory.
+  - The jobs unload `jdftx/gpu` (the user's profile loads it and it puts the shared m4025 build on the paths) and load only its
+    dependencies. Every run had `SYNC_OK` and `ldd` showed each build's own library.
+- **System and layout:** the production Ni_B p07V slab (218 atoms, nBands 1528, 4 states), restarted from its final state
+  files at the `in` positions. 1 node, 4 A100-80GB, `-c 32 --ntasks-per-node=4 --gpus-per-task=1 --gpu-bind=none`, account
+  `m5414_g`.
+- **GPU regression suite:** 11/11 for both p12 and base.
 
-System: `Patty/PBED3BJ_20Ha_addU/surfs/310_fixed_1x3_trim_Ni_B/p07V/ion_opt/jdftx_run`, 218 atoms, nBands 1528, 4 states
-(2 k-points x z-spin, 1 per GPU). Runs restart from the production `in` with its final `wfns`/`fillings`/`eigenvals`/
-`fluidState` (copied into each run dir). The `in` positions are the start of the relaxation, up to 0.16 bohr from the
-geometry the wfns belong to, so the first G (-9573.30) is about 2.6 Ha above the converged value. The `dump End State`,
-`BandProjections`, `ElecDensity` and `dump Ionic State` lines are removed. Layout: 1 node,
-`-C gpu&hbm80g -c 32 --ntasks-per-node=4 --gpus-per-task=1 --gpu-bind=none` (base peaks at 42.4 GiB, so 80GB nodes are required).
-Account `m5414_g` (the user's choice).
+| Test | base | p1 | p12 |
+|---|---|---|---|
+| A: s/iter (20 iters) | 16.42 | 11.87 (−27.7%) | 11.96 (−27.2%) |
+| A: max \|G−G_base\| | — | 2.5e-10 Ha | 0.14 → 7e-5 Ha (different path) |
+| A: Y1^Y2 / Y*M / augmentOverlap calls | 569 / 625 / 336 | 325 / 297 / 8 | 325 / 297 / 8 |
+| A: MEMUSAGE total | 42.43 GiB | 35.81 GiB | 35.81 GiB |
+| B: iters, stop | 52, roundoff | 52, roundoff | 60, roundoff |
+| B: "Step increased G" n, max | 9, 2.1e-7 | 9, 2.0e-7 | 12, 4.4e-7 |
+| B: iters after \|G−Gf\|<1e-6 | 9 | 9 | 12 |
+| C: ElecMin iters (4 ionic steps) | 216 (6 minimizations) | 191 (5) | 231 (5) |
+| C: wall time | 76.5 min | 50.6 min | 64.6 min |
+| C: "Step increased G" events | 45 | 38 | 82 |
 
-GPU regression suite (`JDFTX_LAUNCH="" JDFTX_SUFFIX=_gpu make test`, debug job 60228533): **p12 11/11 and base 11/11 pass**
-(47/47 checks). p12 and base energies differ by at most 1.1e-7 Ha (ionSolvation CANDLE), well within tolerance.
+**Conclusions:**
+- **Projection reuse: keep.** It reproduces base at GPU roundoff and is 27% faster per iteration (25% faster per
+  iteration including forces/D3). It also uses 6.5 GiB/GPU less memory, one wavefunction-sized array.
+- **Löwdin: no benefit on GPU.** Its per-iteration cost is negligible, but it does not remove the noise floor, and it needed
+  more iterations and more failed steps in both B and C. These are single runs, but they agree. Leave it out of production builds.
+- **The ~1e-7 Ha floor is still there with the sync on, so it is not the MPI race and not Cholesky.** After one trial
+  evaluation, every later evaluation is about 1.2e-7 Ha higher, even at alpha 8e-6, and "Undoing step" does not remove it. Leading
+  suspect (unproven): the warm-started LinearPCM solve. About 16-20% of iterations are spent within 1e-6 Ha of the final G.
+- No new code commits. cuBLAS zherk was no faster than zgemm. +U orbital caching would save about 3% for about 1.6 GiB, the wrong
+  trade on 40GB nodes.
 
-Test A (20 ElecMinimize iterations, `energyDiffThreshold 0`; debug jobs 60228536/37/52, a different node each):
-
-| build | s/iter | vs base | max \|G-G_base\| | Y1^Y2 calls/s | Y*M calls/s | augmentOverlap calls/s | diagonalize calls/s | MEMUSAGE |
-|---|---|---|---|---|---|---|---|---|
-| base | 16.42 | — | — | 569 / 85.0 | 625 / 112.8 | 336 / 106.7 | 62 / 2.5 | 42.43 GiB |
-| p1 | 11.87 | −27.7% | 2.5e-10 Ha (all 21 iters) | 325 / 47.2 | 297 / 62.4 | 8 / 3.3 | 62 / 2.6 | 35.81 GiB |
-| p12 | 11.96 | −27.2% | 0.14 Ha at iter 1, 7e-5 at iter 20 (different path) | 325 / 47.3 | 297 / 62.9 | 8 / 2.5 | 102 / 4.1 | 35.81 GiB |
-
-Identical in all three: `Idag_DiagV_I` 30.0 s, `diagouterI` 30.0 s, `EdensityAndVscloc` 20.2 s.
-`orthoMatrix` takes 0.7 s in base and p1 and is called once in p12. The new matrix-level `augmentOverlap`/`augmentOverlapGrad`
-have no StopWatch, so `augmentOverlap` above is the old ColumnBundle version.
-- p1 matches base to GPU roundoff and is 27-28% faster per iteration, above the 15-25% CPU-based estimate.
-  It also lowers peak GPU memory by 6.5 GiB, one wavefunction-sized array (the O(C) copy that is no longer formed).
-  That may let the 255-atom Ni_B adsorbates, which peak at 45.4 GiB on base, run on 40GB nodes without managed memory. Untested.
-- Löwdin's extra eigendecompositions cost 1.6 s per 20 iterations (0.08 s/iter, under 1%). In this window
-  p12's G lags base slightly (higher G at the same iteration); whether it converges faster overall is what Tests B and C answer.
-- Other per-iteration costs (p12): the `Y*M` and `Y1^Y2` products (about 5.5 s/iter), density and local potential (3 s),
-  augmentation (1.75 s), XC (1.35 s). `VanDerWaalsD3::energyAndGrad` takes 18 s per call, but is called once per ionic
-  evaluation, not per iteration. cuBLAS zherk was no faster than zgemm at this shape (tested only on a busy login A100),
-  so no zherk change was made.
-
-**Pending (submitted 2026-10-24 ~16:15 Perlmutter time, regular queue, account `m5414_g`; the user expects a queue wait of a couple of days):**
-
-| job | name | test | limit | run dir (`efficiency_gpu/runs/`) |
-|---|---|---|---|---|
-| 60229252 / 60229253 / 60229255 | effB-base / -p1 / -p12 | B: `electronic-minimize nIterations 150` (default `energyDiffThreshold 1e-8`), `ionic-minimize nIterations 0` | 1:00 | `B_base`, `B_p1`, `B_p12` |
-| 60229257 / 60229260 / 60229261 | effC-base / -p1 / -p12 | C: `ionic-minimize nIterations 4` from the `in` geometry (same system; no unconverged run in the family has state files) | 2:00 | `C_base`, `C_p1`, `C_p12` |
-
-Estimates: B 15-45 min (at most 150 iterations x 16.4/11.9 s plus ~1.5 min setup); C ~75 min (production averaged ~17 min per
-ionic step). If C_base times out, its partial `out` still gives the per-step numbers.
-To check on them: `sacct -j 60229252,60229253,60229255,60229257,60229260,60229261 -X --format=JobID,JobName,State,Elapsed`.
-To resubmit one (the job script is `efficiency_gpu/job.sh <test> <build>`):
-`cd efficiency_gpu && sbatch -A m5414_g -q regular -t <limit> -J eff<T>-<b> -o runs/<T>_<b>/slurm-%j.log job.sh <T> <b>`.
-Before a rerun, remove `out` (`-o` appends). The state files in the run dir are untouched copies, since nothing dumps State.
-
-Test B (default thresholds, `nIterations 150`; jobs 60229252/53/55, all `SYNC_OK`):
-
-| build | iters | stop | s/iter (mean / median) | "Step increased G" (n, max) | iters after \|G-Gf\|<1e-6 | G_final |
-|---|---|---|---|---|---|---|
-| base | 52 | roundoff limit | 18.39 / 16.39 | 9, 2.1e-7 | 9 | -9575.920310639 |
-| p1 | 52 | roundoff limit | 13.29 / 11.81 | 9, 2.0e-7 | 9 | -9575.920310672 |
-| p12 | 60 | roundoff limit | 13.31 / 11.91 | 12, 4.4e-7 | 12 | -9575.920310883 |
-
-- p1 follows base (|dG| <= 2.5e-10 for 25 iterations, 3e-8 at the end) and is 28% faster in wall time (13.7 vs 18.2 min).
-- **Löwdin does not remove the GPU noise floor.** In p12, "Undoing step" still leaves G about 1.2e-7 higher (iters 49->50, 59->60).
-- **The floor is not the MPI race, and Löwdin does not fix it; the leading suspect (unproven) is the warm-started LinearPCM
-  solve.** The signature: after one trial evaluation, every later evaluation sits ~1.2e-7 Ha higher, even at alpha 8e-6, and
-  the offset survives "Undoing step" (p12 iters 49->50). So something history-dependent changes; C itself is restored. The fluid
-  state is the only warm-started iterative solve inside the energy (`fluid-minimize knormThreshold 1e-11`, i.e. sqrt(|r.z|)),
-  and near convergence most solves "Complete after 0 iterations". But `LinearPCM::get_Adiel_and_grad_internal` uses a
-  first-order-correct energy, so a fluid residual should change G only at second order. Not yet explained. (The 4.4e-7 at
-  p12 iter 44 is an ordinary too-large trial step; the reduced step lowered G.) Energy evaluation is repeatable to 1e-10
-  (base vs p1). The 7.8e-3 Ha Cholesky hysteresis of the CPU MnO2 analog does not occur here.
-  Proposed test: rerun B_p1 with `fluid-minimize knormThreshold 1e-14` (and 1e-9). If the floor scales with the threshold, it is the fluid.
-
-When they finish:
-1. Check `run_info.txt`, which should show `SYNC_OK`, a libjdftx path in the matching `build-<b>`, and 0 shared JDFTx builds in `LD_LIBRARY_PATH`.
-2. Run `python3 efficiency_gpu/analyze.py B` and `... analyze.py C`. For each run this prints the s/iter, the stop reason
-   (converged vs "Probably at roundoff error limit"), each "Step increased G" event with its size, the iterations after
-   |G-Gfinal| < 1e-6 per electronic block, the ionic G and t[s] at each step, and the PROFILER totals. For C, also take the
-   electronic iterations per ionic step and the total wall time.
-3. Question for B: does p12 remove the ~2e-7 Ha noise floor? With the sync on, any noise left in base is not the MPI race.
-   Question for C: iterations per ionic step and wall time, keeping in mind that one run per build is noisy.
-4. Fill in B/C tables and conclusions here, put detailed numbers in `efficiency_notes.md` on `efficiency_testing`
-   (commit + push there; never commit CLAUDE.md to it), then report to the user.
-No new commits on `efficiency_testing` yet.
+**Next steps:**
+1. Rerun B_p1 with `fluid-minimize knormThreshold 1e-14` (and 1e-9). If the floor scales with the threshold, it is the fluid.
+   About 15 min each in debug.
+2. Then use a looser stop for 1e4-Ha systems (`energyDiffThreshold` about 1e-7) to cut the tail.
+3. Try p1 for the 255-atom Ni_B adsorbates on 40GB nodes (45.4 GiB on base, so about 39 GiB expected).
+4. Production builds: change 1 on top of master, without change 2.
+5. The run directories hold 9 copies of the 28 GB `wfns` (about 250 GB). Ask the user before deleting them.
