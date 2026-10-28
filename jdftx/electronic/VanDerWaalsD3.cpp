@@ -20,6 +20,8 @@ along with JDFTx.  If not, see <http://www.gnu.org/licenses/>.
 #include <electronic/VanDerWaalsD3.h>
 #include <electronic/VanDerWaalsD3_data.h>
 #include <electronic/Everything.h>
+#include <core/Thread.h>
+#include <mutex>
 
 namespace D3
 {
@@ -76,6 +78,11 @@ namespace D3
 		int iZ12 = (iZmax*(iZmax+1))/2 + iZmin; //index into unique Z pairs
 		pp.R0 = D3::R0_Angstrom[iZ12] * Angstrom;
 		//C6 coefficients:
+		//TODO / BUG (kept deliberately so that results are unchanged; to be fixed in a separate PR):
+		//this loop fills C6data row-major (iCN1 outer), but matrix is column-major (index(i,j) = nRows*j + i).
+		//The C6 contraction in energyAndGrad therefore pairs the wrong reference CN's for unlike atom types
+		//that both have more than one reference CN, e.g. Ni-O gives C6 = 39.4 or 66.7 (for the two atom orders)
+		//instead of 43.6. Fix by storing element (i1, i2) at pp.C6.index(i1, i2); this changes D3 results.
 		pp.C6.init(ap1.CN.size(), ap2.CN.size());
 		complex* C6data = pp.C6.data();
 		for(int iCN1: ap1.iCN)
@@ -144,14 +151,22 @@ double VanDerWaalsD3::getScaleFactor(string exCorrName, double scaleOverride) co
 }
 
 
+//! Return x^m (m >= 1) by repeated multiplication: std::pow is a large part of the cost of the
+//! pair potentials below, which are evaluated for every pair of atoms and periodic image
+template<int m> double intPow(double x)
+{	double result = x;
+	for(int i=1; i<m; i++) result *= x;
+	return result;
+}
+
 //! Return r^-n pair-potential energy and set its derivative E_r.
 //! The potential is damped at length scale R0 and exponent alpha_n.
 template<int n, int alpha_n> double vdWpotential(double invr, double R0, double& E_r)
 {	//Main r^-n potential (and r derivative):
-	double pot = std::pow(invr, n); 
+	double pot = intPow<n>(invr);
 	double pot_r = (-n) * pot * invr;
 	//Exponent in denominator of damping factor (and r derivative):
-	double damp_term = 6 * std::pow(R0 * invr, alpha_n);
+	double damp_term = 6 * intPow<alpha_n>(R0 * invr);
 	double damp_term_r = (-alpha_n) * damp_term * invr;
 	//Overall damping factor (and r derivative):
 	double damp = 1./(1. + damp_term);
@@ -165,11 +180,46 @@ template<int n, int alpha_n> double vdWpotential(double invr, double R0, double&
 template<int n> double vdWpotentialBJ(double r, double R0, double a1, double a2, double& E_r)
 {	//Main r^-n potential (and r derivative):
 	double subcdamp = a1*R0 + a2; // eqn 6 of Grimme 2011
-	double cdamp = pow(subcdamp, n); // raised to n (constant wrt r)
-	double rn = pow(r, n);
+	double cdamp = intPow<n>(subcdamp); // raised to n (constant wrt r)
+	double rnMinus1 = intPow<n-1>(r);
+	double rn = rnMinus1 * r;
 	double E = 1 / (rn + cdamp);
-	E_r = -n * pow(r, n-1) * E * E;
+	E_r = -n * rnMinus1 * E * E;
 	return E;
+}
+
+
+//! Run func(iStart, iStop) on threads that split nJobs (threadLaunch takes only function pointers, while the
+//! lambdas below need access to private members of VanDerWaalsD3). Each call should accumulate its results locally
+//! and add them to shared totals once, under a lock.
+template<typename Func> void threadLaunchLambda_sub(size_t iStart, size_t iStop, const Func* func)
+{	(*func)(iStart, iStop);
+}
+template<typename Func> void threadLaunchLambda(size_t nJobs, const Func& func)
+{	if(nJobs) threadLaunch(threadLaunchLambda_sub<Func>, nJobs, &func); //nJobs=0 would instead mean one call per thread
+}
+
+//! List the neighbor cells from setNeighborSampling once, instead of regenerating them for every pair of atoms
+std::vector<vector3<int>> getNeighborCells(const vector3<int>& S, size_t iStart, size_t iStop)
+{	std::vector<vector3<int>> cells;
+	THREAD_halfGspaceLoop( cells.push_back(iG); )
+	return cells;
+}
+
+//! Return trace(transpose(L1) * C6 * L2), with C6 the real parts of a matrix in its column-major storage order.
+//! This replaces 3 matrix products per pair of atoms that were the dominant cost: on CPU without threaded BLAS,
+//! every product launches threads (eblas_zgemm), and on GPU every product is a cuBLAS call with memory transfers.
+inline double contractC6(const std::vector<double>& C6, const std::vector<double>& L1, const std::vector<double>& L2)
+{	assert(C6.size() == L1.size() * L2.size());
+	const double* C6col = C6.data();
+	double result = 0.;
+	for(double L2j: L2)
+	{	double L1C6 = 0.;
+		for(double L1i: L1)
+			L1C6 += L1i * *(C6col++);
+		result += L1C6 * L2j;
+	}
+	return result;
 }
 
 
@@ -192,63 +242,100 @@ double VanDerWaalsD3::energyAndGrad(std::vector<Atom>& atoms, const double scale
 	std::vector<vector3<>> forces(atoms.size()); //VDW forces per atom
 	matrix3<> E_RRT; //Stress * volume (updated only if E_RRTptr is non-null)
 	std::vector<double> diagC6(atoms.size()); //diagonal C6 for reporting
-	for(int c1=0; c1<int(atoms.size()); c1++)
-	{	const D3::AtomParams& ap1 = atomParams[atoms[c1].sp];
-		matrix L1prime, L1 = ap1.getL(CN[c1], L1prime); //C6 interpolation weights for atom 1
 
-		for(int c2=0; c2<int(atoms.size()); c2++)
-		{	const D3::AtomParams& ap2 = atomParams[atoms[c2].sp];
-			matrix L2prime, L2 = ap2.getL(CN[c2], L2prime); //C6 interpolation weights for atom 2
-
-			//Compute C6 and C8 for this pair:
-			const D3::PairParams& pp = pairParams[atoms[c1].sp][atoms[c2].sp];
-			double ratio8by6 = 3. * ap1.sqrtQ * ap2.sqrtQ;
-			double C6 = trace(transpose(L1) * pp.C6 * L2).real();
-			double C8 = C6 * ratio8by6;
-			double R0 = dampBJ ? sqrt(C8/C6) : pp.R0; //BJ damping uses C8/C6 to get R0
-			if(c1 == c2) diagC6[c1] = C6; //only for reporting
-			
-			//Sum energy, force and stress contributions over periodic images:
-			double E12_C6 = 0., E12_C8 = 0.; //energy contributions upto C6 and C8 prefactors
-			THREAD_halfGspaceLoop(
-				const vector3<int>& iR = iG;
-				vector3<> x = iR + (atoms[c1].pos - atoms[c2].pos);
-				double rSq = e.gInfo.RTR.metric_length_squared(x);
-				if(rSq and rSq<=rCutSq)
-				{	double r = sqrt(rSq);
-					double cellWeight = (iR[2] ? 1. : 0.5); //account for double-counting in half-space cut plane
-					double invr = 1./r;
-					double term6_r; double term6; double term8_r; double term8;
-					if(dampBJ) 
-					{	term6 = (vdWpotentialBJ<6>(r, R0, sr6, sr8, term6_r));
-						term8 = (vdWpotentialBJ<8>(r, R0, sr6, sr8, term8_r));
-					} 
-					else
-					{	term6 = (vdWpotential<6, D3::alpha6>(invr, sr6 * R0, term6_r));
-						term8 = (vdWpotential<8, D3::alpha8>(invr, sr8 * R0, term8_r));
-					}
-					E12_C6 -= cellWeight * s6 * term6;
-					E12_C8 -= cellWeight * s8 * term8;
-					//Colect forces and/or stresses:
-					double E_r_by_r = (-invr * cellWeight) * (C6*s6*term6_r + C8*s8*term8_r);
-					vector3<> E_x = E_r_by_r * (e.gInfo.RTR * x); 
-					forces[c1] -= E_x;
-					forces[c2] += E_x;
-					if(E_RRTptr)
-					{	const vector3<> rVec = e.gInfo.R * x;
-						E_RRT += E_r_by_r * outer(rVec, rVec);
-					}
-				}
-			)
-			E6 += E12_C6 * C6;
-			E8 += E12_C8 * C8;
-			
-			//Propagate gradients to CN:
-			double E12_C6_tot = E12_C6 + E12_C8 * ratio8by6; //total derivative w.r.t C6
-			E_CN[c1] += E12_C6_tot * trace(transpose(L1prime) * pp.C6 * L2).real();
-			E_CN[c2] += E12_C6_tot * trace(transpose(L1) * pp.C6 * L2prime).real();
+	//C6 interpolation weights per atom and reference C6's per pair of atom types as plain arrays, set up once here
+	//(the per-pair matrix operations used before dominated the cost; see contractC6):
+	std::vector<std::vector<double>> L(atoms.size()), Lprime(atoms.size());
+	for(size_t c=0; c<atoms.size(); c++)
+	{	matrix Lcprime, Lc = atomParams[atoms[c].sp].getL(CN[c], Lcprime);
+		for(int i=0; i<Lc.nRows(); i++)
+		{	L[c].push_back(Lc.data()[i].real());
+			Lprime[c].push_back(Lcprime.data()[i].real());
 		}
 	}
+	std::vector<std::vector<std::vector<double>>> C6ref(pairParams.size()); //PairParams::C6 in its storage order (see BUG note in getPairParams)
+	for(size_t iSp1=0; iSp1<pairParams.size(); iSp1++)
+		for(const D3::PairParams& pp: pairParams[iSp1])
+		{	C6ref[iSp1].push_back(std::vector<double>());
+			for(int i=0; i<pp.C6.nData(); i++)
+				C6ref[iSp1].back().push_back(pp.C6.data()[i].real());
+		}
+	const std::vector<vector3<int>> cells = getNeighborCells(S, iStart, iStop);
+
+	//Threads divide the first atom of each pair, in addition to the MPI division of cells:
+	std::mutex lock;
+	threadLaunchLambda(atoms.size(), [&, &E6tot=E6, &E8tot=E8, &E_CNtot=E_CN, &forcesTot=forces, &E_RRTtot=E_RRT](size_t c1start, size_t c1stop)
+	{	//Thread-local accumulators, named as in the original loop below and added to the totals (*tot) at the end:
+		double E6 = 0., E8 = 0.;
+		std::vector<double> E_CN(atoms.size());
+		std::vector<vector3<>> forces(atoms.size());
+		matrix3<> E_RRT;
+		for(int c1=c1start; c1<int(c1stop); c1++)
+		{	const D3::AtomParams& ap1 = atomParams[atoms[c1].sp];
+			const std::vector<double>& L1 = L[c1], &L1prime = Lprime[c1]; //C6 interpolation weights for atom 1
+
+			for(int c2=0; c2<int(atoms.size()); c2++)
+			{	const D3::AtomParams& ap2 = atomParams[atoms[c2].sp];
+				const std::vector<double>& L2 = L[c2], &L2prime = Lprime[c2]; //C6 interpolation weights for atom 2
+
+				//Compute C6 and C8 for this pair:
+				const D3::PairParams& pp = pairParams[atoms[c1].sp][atoms[c2].sp];
+				const std::vector<double>& ppC6 = C6ref[atoms[c1].sp][atoms[c2].sp];
+				double ratio8by6 = 3. * ap1.sqrtQ * ap2.sqrtQ;
+				double C6 = contractC6(ppC6, L1, L2);
+				double C8 = C6 * ratio8by6;
+				double R0 = dampBJ ? sqrt(C8/C6) : pp.R0; //BJ damping uses C8/C6 to get R0
+				if(c1 == c2) diagC6[c1] = C6; //only for reporting
+
+				//Sum energy, force and stress contributions over periodic images:
+				double E12_C6 = 0., E12_C8 = 0.; //energy contributions upto C6 and C8 prefactors
+				for(const vector3<int>& iR: cells)
+				{	vector3<> x = iR + (atoms[c1].pos - atoms[c2].pos);
+					double rSq = e.gInfo.RTR.metric_length_squared(x);
+					if(rSq and rSq<=rCutSq)
+					{	double r = sqrt(rSq);
+						double cellWeight = (iR[2] ? 1. : 0.5); //account for double-counting in half-space cut plane
+						double invr = 1./r;
+						double term6_r; double term6; double term8_r; double term8;
+						if(dampBJ)
+						{	term6 = (vdWpotentialBJ<6>(r, R0, sr6, sr8, term6_r));
+							term8 = (vdWpotentialBJ<8>(r, R0, sr6, sr8, term8_r));
+						}
+						else
+						{	term6 = (vdWpotential<6, D3::alpha6>(invr, sr6 * R0, term6_r));
+							term8 = (vdWpotential<8, D3::alpha8>(invr, sr8 * R0, term8_r));
+						}
+						E12_C6 -= cellWeight * s6 * term6;
+						E12_C8 -= cellWeight * s8 * term8;
+						//Colect forces and/or stresses:
+						double E_r_by_r = (-invr * cellWeight) * (C6*s6*term6_r + C8*s8*term8_r);
+						vector3<> E_x = E_r_by_r * (e.gInfo.RTR * x);
+						forces[c1] -= E_x;
+						forces[c2] += E_x;
+						if(E_RRTptr)
+						{	const vector3<> rVec = e.gInfo.R * x;
+							E_RRT += E_r_by_r * outer(rVec, rVec);
+						}
+					}
+				}
+				E6 += E12_C6 * C6;
+				E8 += E12_C8 * C8;
+
+				//Propagate gradients to CN:
+				double E12_C6_tot = E12_C6 + E12_C8 * ratio8by6; //total derivative w.r.t C6
+				E_CN[c1] += E12_C6_tot * contractC6(ppC6, L1prime, L2);
+				E_CN[c2] += E12_C6_tot * contractC6(ppC6, L1, L2prime);
+			}
+		}
+		std::lock_guard<std::mutex> guard(lock);
+		E6tot += E6;
+		E8tot += E8;
+		for(size_t c=0; c<atoms.size(); c++)
+		{	E_CNtot[c] += E_CN[c];
+			forcesTot[c] += forces[c];
+		}
+		E_RRTtot += E_RRT;
+	});
 	report(diagC6, "diagonal-C6", atoms, " %.2f");
 	mpiWorld->allReduce(E6, MPIUtil::ReduceSum);
 	mpiWorld->allReduce(E8, MPIUtil::ReduceSum);
@@ -278,25 +365,32 @@ void VanDerWaalsD3::computeCN(const std::vector<Atom>& atoms, std::vector<double
 	vector3<int> S; size_t iStart, iStop; //Number of unit cells in supercell to reach rCut and MPI division
 	setNeighborSampling(rCut, S, iStart, iStop);
 	CN.assign(atoms.size(), 0.);
-	for(int c1=0; c1<int(atoms.size()); c1++)
-	{	const D3::AtomParams& ap1 = atomParams[atoms[c1].sp];
-		for(int c2=0; c2<int(atoms.size()); c2++)
-		{	const D3::AtomParams& ap2 = atomParams[atoms[c2].sp];
-			double k2RcovSum = ap1.k2Rcov + ap2.k2Rcov;
-			THREAD_halfGspaceLoop(
-				const vector3<int>& iR = iG;
-				vector3<> x = iR + (atoms[c1].pos - atoms[c2].pos);
-				double rSq = e.gInfo.RTR.metric_length_squared(x);
-				if(rSq and rSq<=rCutSq)
-				{	double r = sqrt(rSq);
-					double cellWeight = (iR[2] ? 1. : 0.5); //account for double-counting in half-space cut plane
-					double CNterm = cellWeight/(1. + exp(-D3::k1*(k2RcovSum/r - 1.)));
-					CN[c1] += CNterm;
-					CN[c2] += CNterm;
+	const std::vector<vector3<int>> cells = getNeighborCells(S, iStart, iStop);
+	std::mutex lock;
+	threadLaunchLambda(atoms.size(), [&, &CNtot=CN](size_t c1start, size_t c1stop)
+	{	std::vector<double> CN(atoms.size()); //thread-local, added to CNtot at the end
+		for(int c1=c1start; c1<int(c1stop); c1++)
+		{	const D3::AtomParams& ap1 = atomParams[atoms[c1].sp];
+			for(int c2=0; c2<int(atoms.size()); c2++)
+			{	const D3::AtomParams& ap2 = atomParams[atoms[c2].sp];
+				double k2RcovSum = ap1.k2Rcov + ap2.k2Rcov;
+				for(const vector3<int>& iR: cells)
+				{	vector3<> x = iR + (atoms[c1].pos - atoms[c2].pos);
+					double rSq = e.gInfo.RTR.metric_length_squared(x);
+					if(rSq and rSq<=rCutSq)
+					{	double r = sqrt(rSq);
+						double cellWeight = (iR[2] ? 1. : 0.5); //account for double-counting in half-space cut plane
+						double CNterm = cellWeight/(1. + exp(-D3::k1*(k2RcovSum/r - 1.)));
+						CN[c1] += CNterm;
+						CN[c2] += CNterm;
+					}
 				}
-			)
+			}
 		}
-	}
+		std::lock_guard<std::mutex> guard(lock);
+		for(size_t c=0; c<atoms.size(); c++)
+			CNtot[c] += CN[c];
+	});
 	mpiWorld->allReduceData(CN, MPIUtil::ReduceSum);
 	report(CN, "coordination-number", atoms);
 }
@@ -310,35 +404,46 @@ void VanDerWaalsD3::propagateCNgradient(const std::vector<Atom>& atoms, const st
 	vector3<int> S; size_t iStart, iStop;
 	setNeighborSampling(rCut, S, iStart, iStop);
 	//Propagate gradients corresponding to computeCN()
-	for(int c1=0; c1<int(atoms.size()); c1++)
-	{	const D3::AtomParams& ap1 = atomParams[atoms[c1].sp];
-		for(int c2=0; c2<int(atoms.size()); c2++)
-		{	const D3::AtomParams& ap2 = atomParams[atoms[c2].sp];
-			double k2RcovSum = ap1.k2Rcov + ap2.k2Rcov;
-			THREAD_halfGspaceLoop(
-				const vector3<int>& iR = iG;
-				vector3<> x = iR + (atoms[c1].pos - atoms[c2].pos);
-				double rSq = e.gInfo.RTR.metric_length_squared(x);
-				if(rSq and rSq<=rCutSq)
-				{	double r = sqrt(rSq);
-					double invr = 1./r;
-					double cellWeight = (iR[2] ? 1. : 0.5); //account for double-counting in half-space cut plane
-					double E_CNterm = E_CN[c1] + E_CN[c2];
-					double expTerm = exp(-D3::k1*(k2RcovSum*invr - 1.));
-					double expTerm_r = expTerm * D3::k1 * (k2RcovSum * invr * invr);
-					double E_r_by_r = (-invr * E_CNterm * cellWeight * expTerm_r) / std::pow(1+expTerm, 2);
-					//Colect forces and/or stresses:
-					vector3<> E_x = E_r_by_r * (e.gInfo.RTR * x); 
-					forces[c1] -= E_x;
-					forces[c2] += E_x;
-					if(E_RRT)
-					{	const vector3<> rVec = e.gInfo.R * x;
-						*E_RRT += E_r_by_r * outer(rVec, rVec);
+	const std::vector<vector3<int>> cells = getNeighborCells(S, iStart, iStop);
+	std::mutex lock;
+	threadLaunchLambda(atoms.size(), [&, &forcesTot=forces, E_RRTtot=E_RRT](size_t c1start, size_t c1stop)
+	{	//Thread-local accumulators, named as in the original loop below and added to the totals (*tot) at the end:
+		std::vector<vector3<>> forces(atoms.size());
+		matrix3<> E_RRTsum;
+		matrix3<>* E_RRT = E_RRTtot ? &E_RRTsum : 0;
+		for(int c1=c1start; c1<int(c1stop); c1++)
+		{	const D3::AtomParams& ap1 = atomParams[atoms[c1].sp];
+			for(int c2=0; c2<int(atoms.size()); c2++)
+			{	const D3::AtomParams& ap2 = atomParams[atoms[c2].sp];
+				double k2RcovSum = ap1.k2Rcov + ap2.k2Rcov;
+				for(const vector3<int>& iR: cells)
+				{	vector3<> x = iR + (atoms[c1].pos - atoms[c2].pos);
+					double rSq = e.gInfo.RTR.metric_length_squared(x);
+					if(rSq and rSq<=rCutSq)
+					{	double r = sqrt(rSq);
+						double invr = 1./r;
+						double cellWeight = (iR[2] ? 1. : 0.5); //account for double-counting in half-space cut plane
+						double E_CNterm = E_CN[c1] + E_CN[c2];
+						double expTerm = exp(-D3::k1*(k2RcovSum*invr - 1.));
+						double expTerm_r = expTerm * D3::k1 * (k2RcovSum * invr * invr);
+						double E_r_by_r = (-invr * E_CNterm * cellWeight * expTerm_r) / std::pow(1+expTerm, 2);
+						//Colect forces and/or stresses:
+						vector3<> E_x = E_r_by_r * (e.gInfo.RTR * x);
+						forces[c1] -= E_x;
+						forces[c2] += E_x;
+						if(E_RRT)
+						{	const vector3<> rVec = e.gInfo.R * x;
+							*E_RRT += E_r_by_r * outer(rVec, rVec);
+						}
 					}
 				}
-			)
+			}
 		}
-	}
+		std::lock_guard<std::mutex> guard(lock);
+		for(size_t c=0; c<atoms.size(); c++)
+			forcesTot[c] += forces[c];
+		if(E_RRTtot) *E_RRTtot += E_RRTsum;
+	});
 }
 
 
