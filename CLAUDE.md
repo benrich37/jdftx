@@ -171,6 +171,23 @@ Per-test results are in `build/test/<name>/results` and `summary`. Each test dir
 `checkResults.sh` (prints `nChecks`, then `obtained expected tolerance description` lines).
 There is no linter or unit-test framework.
 
+### Testing and benchmarking the van der Waals module (default method)
+
+To test or time `VanDerWaals*` code, skip electronic minimization with these built-in options. Don't write drivers or
+patch `run.cpp` for this.
+- **Repeated calls: `lj-override` with D3.** With `lj-override`, setup sets `skipWfnsInit`, and `IonInfo::update` and
+  `ionicEnergyAndGrad` return right after `pairPotentialsAndGrad`. The minimizers then skip all electronic work, and
+  Ewald runs with zero charges. For D3/D3BJ the only other change is the cutoff (`rCut = ljOverride` instead of 200 bohr
+  in `VanDerWaalsD3::energyAndGrad`), so pass `lj-override 105.83544` (= 200 bohr) to reproduce production D3 (checked: energy matches a normal run to 6e-12 Ha).
+  Add `elec-cutoff 5` (grids and basis are still set up), then `ionic-minimize nIterations N` (forces),
+  `lattice-minimize` (adds stress) or `ionic-dynamics` (a fixed number of steps). Each ionic step calls vdW twice:
+  energy in `update`, then forces in `ionicEnergyAndGrad`. **Not for D2:** `lj-override` replaces D2 with a
+  Lennard-Jones potential.
+- **One call: dry run `jdftx -n`.** `Everything::setup()` runs `iInfo.update()`, which evaluates vdW once (energy and
+  forces, no stress). This works for D2 too.
+- Timing: build with `-D EnableProfiling=yes` and read `PROFILER: VanDerWaalsD3::energyAndGrad` (or `...D2...`), which
+  counts only the vdW routine.
+
 ## Running
 
 `jdftx -i in -o out` (`-c N` threads, `-n` dry run: parse and initialize only, `-t` prints every command's
