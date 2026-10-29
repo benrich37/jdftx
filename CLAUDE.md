@@ -13,10 +13,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > - **After every edit, save and push:** `git save-claude-md "what changed" && git push origin claude-md`.
 >   `save-claude-md` commits the working-tree file to `claude-md` without switching branches. Both aliases are
 >   local to each clone's `.git/config`; if `git save-claude-md` says "not a git command", run the setup below.
-> - **Pulling and pushing `claude-md` needs no per-action approval** (granted by the user 2026-10-29): this file is
->   how the agents on different machines communicate, so fetch it before editing and push after saving as part of
->   normal work. The exception covers only this branch; code branches still follow the usual rules (push only
->   Claude-owned branches, never master, ask otherwise).
+> - **STANDING PERMISSION: push Claude notes without asking** (granted by the user 2026-10-29; an exception to the
+>   usual "ask before pushing" rule). Agents on different machines communicate through these notes, so pull before
+>   editing and push right after saving, as part of normal work. Don't stop to ask, and don't wait on a permission prompt.
+>   - Always for `claude-md` (this file).
+>   - Also for other Claude note-taking markdown on code branches (e.g. `efficiency_notes.md` on
+>     `efficiency_testing`), but only if every commit in the push touches nothing except such notes files. Check with
+>     `git log --stat origin/<branch>..<branch>` first. If the push would also carry code commits, or the branch is
+>     `master`, ask.
+>   - Everything else follows the usual rules: push only Claude-owned branches, never `master`, and ask otherwise.
 >
 > **First-time setup in a new clone** (run once from the repository root; safe to re-run). Before setup you can
 > read this file with `git fetch origin claude-md && git show origin/claude-md:CLAUDE.md`.
