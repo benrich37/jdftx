@@ -499,7 +499,30 @@ Written by a research-side session choosing the local build for the Patty refere
     from saved wavefunctions, so the cap would mainly help first runs.
   - **USPP grid augmentation.** It took 25% for only 9 atoms (0.16-0.38 s per call). Worth checking whether
     `augmentDensityGrid(Grad)` scales with the box (full grid) or with the atoms (spheres around them).
-  - **Memory.** It scales with the box volume, not with the molecule, and caps local concurrency at 3-4 molecules.
+  - **Memory.** It scales with the box volume, not with the molecule. In production it caps local concurrency at
+    2 solvated molecules, not 3-4 (see the follow-up below).
+
+### Follow-up: concurrency in production (2026-10-29)
+
+These numbers come from the Patty production runs (`build_eff`, runner logs in
+`/Volumes/Ext4TB/scratch_backup/perl/Patty/PBED3BJ_20Ha_addU/mols/run_local_mol_{opts,vibs}.log`).
+- **Footprint.** A solvated ion opt reaches ~15 GB per process (macOS `top` MEM, including compressed pages), against
+  11.7 GB `MEMUSAGE` in the single point above. Gas-phase calcs and the vacuum pre-solve take ~4 GB.
+- **Three at once does not fit.** With three solvated opts at `-c 5` plus normal desktop use, the 64 GB machine reached
+  25 GB of compression and a full 6 GB swap. The solvated SCF slowed from ~20 s/iter (when gas jobs were alongside)
+  to 45-55 s/iter. That is worse in total than one job at `-c 12`, which ran 11.6 s/iter (a glycinate vib on
+  `build_merged`, 2026-10-26).
+- **Two at once fits.** After one job was stopped, the other two (still `-c 5`) dropped to 20-28 s/iter within minutes,
+  with 10 GB of compression and 7.7 GB free. Production now runs 2 x `-c 8`. Its per-iteration time is not yet
+  measured, and the `run_threads.sh` test below would settle the best split.
+- **Memory is the local throughput limit for molecules.** Shrinking the grid arrays (`ScalarField` 7.95 GB,
+  `ScalarFieldTilde` 4.94 GB in a 20 Å box) would let a third job run.
+- **Vacuum pre-solve, worst case.** For CO3²⁻ (charge −2, `Isolated`, 20 Å box), the vacuum pre-solve is an unbound
+  dianion (mu = +0.43 Ha). It crept through 441 iterations to `energyDiffThreshold 1e-9` (~1 h under 3-way load),
+  only to serve as the solvated start. This strengthens the "cap the vacuum pre-solve" item for charged molecules.
+- **Vib cost.** perlstuff `vib2.py` does one-sided displacements, 3N + 1 SCFs. Each one restarts from the reference
+  wavefunctions and takes 11-12 iterations to `energyDiffThreshold 1e-9` when solvated (8-12 in gas). Fluid
+  solve cost and the convergence threshold therefore dominate the vibs as well.
 
 ### Reproducing
 
