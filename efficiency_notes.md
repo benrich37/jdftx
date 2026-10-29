@@ -250,3 +250,181 @@ Local files live in `~/Desktop/jdftx_hold/`:
   - `build_perf`: changes 1 + 2 as tested before the merge.
   - `build_merged`: this branch after the upstream merge (change 1 only).
   - All builds are Release builds with `EnableProfiling`.
+
+## Survey of further efficiency candidates (2026-10-28)
+
+Question: what else can be made faster while keeping JDFTx functionally equivalent, and would a documented
+minimization algorithm beat the current one? Sources: the code on this branch (merged with upstream through b3c54e1d;
+upstream has nothing newer), the GPU profile of Test A (local copy `~/Desktop/jdftx_hold/efficiency_gpu_outputs/runs/A_p1/out`), and CPU experiments on
+the Mac with a profiling build of a37d055f (`~/Desktop/jdftx_hold/build_eff`, source clone `jdftx_eff`). Inputs, outputs,
+scripts, prototype patches and the toy model are in `~/Desktop/jdftx_hold/efficiency_survey/`.
+
+### Where a GPU ElecMinimize iteration goes (A_p1: 218 atoms, 1 state per A100, 11.9 s per iteration)
+
+One iteration = one energy-only (trial) evaluation + one energy-and-gradient evaluation + `constrain(d)`.
+StopWatch totals divided by 20 iterations; call counts per iteration. The totals include the iteration-0 evaluation
+(21 gradient and 41 energy evaluations) and the force calculation, so the rows sum to ~12.3 s against the 11.9 s
+measured between iterations 1 and 20. The 3 D3 calls in this profile cost 18.4 s each; a37d055f removes that.
+
+| Part | s/iter | share | calls | what it is |
+|---|---|---|---|---|
+| `Y*M` + `Y1^Y2` | 5.5 | 46% | 15 + 16 | ~13 full nbasis x nBands x nBands products, see below |
+| `Idag_DiagV_I` + `diagouterI` | 3.0 | 25% | 1 + 2 | 1528 bands x 4 single FFTs (2 + 1 + 1) of the 70x240x300 wfns grid |
+| `augmentDensityGridGrad` | 1.25 | 10% | 4 (species) | GPU kernel launched once per atom, see item 1 |
+| `augmentDensityGrid` | 0.50 | 4% | 8 | per atom too, but a plain forward kernel |
+| `ExCorrCommunication` | 0.69 | 6% | ~12 timed blocks | ~20 grid-sized allReduces (sigma, E_n, E_sigma, E_nTilde); 99% of `ExCorrTotal` |
+| rest of `EdensityAndVscloc` (fluid, Hartree, local) | 0.33 | 3% | 2 | up to 44 LinearPCM CG iterations per evaluation |
+| `rhoAtom_calc` + `rhoAtom_grad` (+U) | 0.40 | 3% | 8 + 4 (per species; only Mn has U) | orbitals rebuilt and re-projected each call |
+| `EnlAndGrad`, `augmentDensitySpherical(Grad)`, dense nBands^3 (diagonalize, inv, orthoMatrix) | 0.7 | 5% | | |
+
+The ~13 full-size products per iteration (0.4-0.5 s each): 4 for frame bookkeeping in `step` (`dir.C*rotPrevC` and
+the orthonormalizing `C*rot`, in both the trial and the actual step), 2 for rotating `grad` and `Kgrad` back by
+`rotPrevCinv` in `compute`, 1 for `C^HC`, 1 for `HC -= C*Hsub`, ~1.6 for `projectGrad`, ~1.6 for `V^d` in
+`constrain`, 1 for `d -= C*(C^Od)`, ~0.7 for the +U orbital projections. The trial evaluation costs about 2.7 s (22%).
+
+### Functionally equivalent candidates, ranked by expected GPU gain
+
+1. **`nAugmentGrad_gpu`: per-launch overhead and one launch per atom (~6% of the iteration, up to 9%).**
+   `SpeciesInfo::augmentDensityGridGrad` loops over spins and atoms and calls `nAugmentGrad` for each (436 launches per
+   gradient evaluation here). The GPU version (`SpeciesInfo.cu`) costs 0.28 s per species call, 4.6x the forward
+   `nAugment` kernel (0.061 s), while on CPU the ratio is 2.0x (0.092 vs 0.045 s per call, `b10.in` at 8 threads; the
+   gradient kernel does more work per point: spline derivatives and 6 accumulators). The excess over 2x is overhead,
+   with two visible sources. (a) Every call runs `cudaGetDevice`, `cudaGetDeviceProperties` and `cudaFuncGetAttributes`
+   on the host to size the launch; `cudaGetDeviceProperties` alone can take milliseconds, and the whole launch costs
+   about 2 ms for Mn (0.28 s / 142 launches). `GpuUtil.cpp` already stores the device properties at init, and the
+   other kernels' `GpuLaunchConfig` only calls `cudaFuncGetAttributes`. (b) The kernel uses `nCoeff` blocks (the |G|
+   bins of `nagIndex`) of `warpSize` threads, about 16k threads for a 7M-point grid, and ends with
+   `cudaDeviceSynchronize()` because its scratch buffer is a local `GpuBuffer` (pool-allocated, so the allocation is
+   cheap; the sync protects its lifetime). Step 1, a few lines and strictly equivalent: cache the launch configuration
+   in statics and keep a persistent scratch buffer so the sync can go. Step 2, if the kernel is still slow: make the
+   atom a second grid dimension (`blockIdx.y`), index `atpos`, `nRadial` and the `E_nRadialTemp` copies by atom, then
+   one collect kernel and one sync per species call. Same arithmetic per grid point, only the reduction grouping
+   changes (roundoff-level, like the existing 8-copy split). Expected 1.25 s -> ~0.5 s per iteration if the GPU reaches
+   the CPU's 2x ratio (~6%), ~0.15 s if it matches the forward kernel (~9%). Needs a GPU build to measure; the CPU
+   path is untouched. `augmentDensityGrid` could be batched the same way (one kernel per species reading `n` once per
+   point); ~2%.
+2. **XC: skip the MPI grid split on GPUs (~5%).** `ExCorr::operator()` divides the three gradient directions
+   (`TaskDivision(3, mpiWorld)`) and the functional evaluation (`gInfo.irStart/irStop`) over processes and then
+   allReduces sigma (3), E_n (2), E_sigma (3) and E_nTilde (2) grid arrays (10 per call, timed as 6 blocks): 0.3 s per
+   XC call on 4 GPUs, 99% of the XC time, while the
+   functional itself takes 1 ms (`ExCorrFunctional`) and the FFTs the split saves take ~10 ms. Prototype:
+   `efficiency_survey/patches/xc_nosplit_gpu.prototype.patch` (`splitMPI = not isGpuEnabled()`, plus an env override
+   `JDFTX_XC_NOSPLIT` used only for the CPU check). CPU check, np=2, 10 iterations of `b10.in`: energies agree with the
+   split path to 1e-10 at every iteration (for scale: the same input at np=1 with 8 threads differs from the np=2 run
+   by 3e-10, and the thread-threshold variants below by 4e-11), `ExCorrCommunication` disappears and
+   `ExCorrFunctional` doubles per process as expected (so on CPU the split stays).
+3. **Batched FFTs in `Idag_DiagV_I` / `diagouterI` (2-5%, uncertain).** Both transform one band at a time
+   (`getColumn`: memset + scatter, cuFFT, multiply, cuFFT, gather): 2 transforms per band in `Idag_DiagV_I` and 1 in
+   each of the two `diagouterI` calls, about 6100 single 5M-point transforms per iteration. At ~0.5 ms each they are
+   already near A100 bandwidth, so a `cufftPlanMany` batch would mostly remove the launch and
+   allocation overhead of the ~8 small kernels per band. I would not expect more than 10-20% of the 3 s. Not tested
+   (no CUDA on the Mac).
+4. **Reuse the +U projections within an evaluation (~1%).** `rhoAtom_grad` rebuilds the orbitals and recomputes
+   `Opsi^Cq` that `rhoAtom_calc` just computed for the same `C[q]`. Caching `psiOCdag` per state (355 x 1528) saves one
+   0.23-size product and one orbital build per iteration. Caching the orbitals themselves is the 3% / 1.6 GiB item above.
+5. **Frame bookkeeping (up to 4%, not exactly equivalent).** One of the 4 rotation products per iteration could go by
+   keeping `d` and `gPrev` in the current frame and rotating them in `step`, but only by dropping the re-unitarization
+   snap in `report()`, which perturbs the CG direction at O(alpha^2). Not pursued.
+6. **CPU only: a thread launch per small zgemm.** Without MKL, `eblas_zgemm` (`BlasExtra.cpp`) spawns
+   `nProcsAvailable-1` threads for every product, including the 18x84x18 ones in `augmentDensitySpherical` and all
+   `matrix*matrix` products. Prototype threshold (`JDFTX_ZGEMM_THREAD_MIN`, `patches/zgemm_thread_threshold.prototype.patch`),
+   `b10.in` (10 iterations, 12-atom slab, 8 threads, runs one at a time, `efficiency_survey/zgemm_threshold/`):
+   wall 40.1 s (HEAD) and 45.8 s (prototype with threshold 1, i.e. always threaded; the spread shows the timing noise)
+   vs 35.5 / 34.8 / 34.9 s with thresholds 1e5 / 1e6 / 1e7; `augmentDensitySpherical` 0.41 -> 0.09 s, its gradient
+   0.23 -> 0.06 s, `EnlAndGrad` 0.75 -> 0.16 s, and the nBands-sized `Y*M`/`Y1^Y2` products 12.5 -> 10.9 s; energies
+   agree to 4e-11 at every iteration. So 10-25% on a small
+   CPU system; the gain shrinks with system size as the big products dominate. A threshold of 1e6 complex MACs
+   (about 0.3 ms single-threaded) is safe; the final patch should hard-code it and drop the env variable.
+   Irrelevant on GPU (cuBLAS) and with MKL (`THREADED_BLAS`).
+
+### Algorithms (not functionally equivalent): caseB on the 12-atom MnO2 slab
+
+Restart from the neutral state at `target-mu -0.25`, converge to 1e-8; 8 threads, two runs side by side
+(`efficiency_survey/algo/`).
+
+| Scheme | iterations | evaluations (fluid solves) | wall | final G |
+|---|---|---|---|---|
+| CG Polak-Ribiere + quadratic linmin (default) | 45 | 92 (46 with gradient) | 2:33 | -519.497837474793 |
+| CG Fletcher-Reeves | 45 | 92 | 2:42 | -519.497837474786 |
+| CG + cubic Wolfe linmin (`linminMethod CubicWolfe`) | 71 | 73 (all with gradient) | 3:16 | -519.497837252730 |
+| L-BFGS, default Wolfe linmin | 6, stopped at "roundoff" | 12 | 0:37 | -519.4927 |
+| L-BFGS, `alphaTstart 0.1 nAlphaAdjustMax 6` (default history 15 / `history 5`) | 87 / 85 | 156 / 177 | 10:33 / 12:41 | diverged, aborted / -519.458 (roundoff stop) |
+| L-BFGS, `linminMethod Quad` | 106 | 247 | 14:38 | diverged (-161) |
+| SCF, Pulay density mixing + Davidson (`electronic-scf`, defaults) | 72 cycles | 144 | 5:30 | -519.497837438154 |
+
+- **L-BFGS** is unusable as implemented: the first tentative step is `alphaTstart` along the preconditioned gradient
+  and overshoots by ~100x ((E-E0)/|g.d| = 47; g.d changes sign and grows 134x), the cubic search gives up after
+  `nAlphaAdjustMax` tries without satisfying Wolfe, and `Minimize_lBFGS.h` then stores `rho = 1/(y.s)` without checking
+  the curvature condition y.s > 0 (the standard skip rule; Nocedal and Wright, Numerical Optimization, ch. 6-7), so
+  the inverse-Hessian update goes indefinite and the next direction is not a descent direction ("Bad step direction:
+  g.d > 0"). Smaller initial steps and the quadratic linmin did not help: `alphaTstart 0.1` diverged to -1.3e5 Ha and
+  aborted on the hermiticity check in `diagonalize`, its `history 5` variant stopped at -519.458 ("roundoff"), and the
+  Quad variant diverged to -161 Ha. Its large steps also show the irreversibility below (Quad variant: G up by 0.15
+  and 0.17 Ha after the undos at iterations 2 and 28). Making it work would need the curvature guard, a
+  Hessian-scaled first step, and care with the frame: `report()` re-snaps `rotPrevC` to the unitary `rotPrev` each
+  iteration, so s = alpha*d and y = g - gPrev stored in different iterations are consistent only to O(alpha^2). The
+  prize is bounded by the trial evaluation (22% on GPU) plus any iteration-count difference.
+- Not tested: `linminMethod Relax` (constant step `alphaTstart`, no line search, only checks that G is finite; the
+  code marks it "not recommended for CG"). It would remove the trial evaluation but gives up the step-size control
+  these runs need (alpha ranges from 1e-4 to 1.5 within one run here).
+- **CG with the Wolfe search** does reach one evaluation per iteration, but each is a full gradient evaluation (9.3 s on
+  GPU vs 2.7 s for the trial energy) and the inexact line search costs 60% more iterations. Net loss.
+- **SCF + Davidson** converges but needs 72 cycles with a wild start (cycle 1 at -426 Ha) and 2x the wall time; mixing
+  was not tuned. For `target-mu` + fluid + metallic slab the direct minimizer stays the right default. (Davidson's own
+  cost could still drop with `dagO`/cached projections, as in change 1.)
+- Fletcher-Reeves follows the same path as Polak-Ribiere here (G agrees to 1e-14; both runs had one CG reset, "Bad
+  step direction", in 45 iterations).
+
+### Tight convergence: the step is not reversible with Cholesky orthonormalization (CPU, reproducible)
+
+`caseA_tight.in` (target-mu -0.19 restart, `energyDiffThreshold 1e-11`, 200 iterations) on three builds:
+
+| build | result in 200 iterations | undo events | alpha-independent energy jumps | final G | min G |
+|---|---|---|---|---|---|
+| HEAD a37d055f (Cholesky, projection reuse) | not converged, grad 3e-7 | 2 | 1: +9.9e-4 Ha at iter 38 | -525.972332414 | same |
+| base_prof e305ab5d (Cholesky, no projection reuse) | not converged, grad 3.6e-7 | 1 | 1: +7.9e-4 Ha at iter 38 | -525.972337164 | same |
+| perf (Lowdin `invsqrt` + projection reuse, = patch 02) | roundoff stop at iter 137 (\|dG\| 2e-10, grad 8e-9) | 8 (17 failed steps, 7e-12 to 5.5e-10) | none | -525.972332134 | same |
+
+What the jump looks like (HEAD log, iteration 38): the test step at alpha 0.61 (the previous step size, via
+`updateTestStepSize`) is followed by "Step increased G by 9.9178e-04 / 9.9175e-04 / 9.9175e-04" at alpha 8e-5, 8e-6,
+8e-7, then "Undoing step". The fluid solver needs 21 CG iterations at the first stepped-back point and 0 at the next
+two and after the undo, so those four states coincide to the fluid tolerance although alpha spans 8e-5 to 0, and all
+sit 1 mHa above G at iteration 38. The next `FillingsUpdate` has the same nElectrons (108.264800) and total moment
+(+0.23970) but |m| 14.32447 instead of 14.32590. So fillings and Haux come back exactly and the wavefunctions do not.
+Both Cholesky runs then leave the plateau at -525.97086 (where they had crept at 1e-7 to 3e-7 per iteration since
+iteration ~25) and descend to -525.97233 by iteration ~200. The Lowdin run meets the same hard spot at iterations
+38-41 (trial steps overshoot; the fitted alpha is 4e-5, then -3e-2), but every step back is exact, G keeps
+decreasing, and it reaches -525.97233 by iteration 100.
+
+Mechanism (toy model `efficiency_survey/reversibility/step_reversibility.py`): a trial step C1 = ortho(C + a d) rot1
+followed by the step back C2 = ortho(C1 - a d L1 rot1) rot1^H gives C2 = C U with U = L1 rot1 L2 rot1^H. With a
+triangular (Cholesky) L this U is unitary but not the identity whenever the auxiliary-Hamiltonian rotation rot1 is
+not trivial: |U - I| = 1.3e-6, 1.3e-4, 1.2e-2 for a/|C| = 3e-3, 3e-2, 0.3 (energy error up to 1e-3 for distinct
+fillings). With symmetric L = (C^OC)^-1/2 it is the identity to 1e-15 at every step size, and without the Haux
+rotation both are exactly reversible (a unitary triangular matrix is diagonal). In Haux mode rot1 is large whenever
+Haux eigenvalues are close, so this is the normal case for metals. This is the mechanism patch 02 was written for; the
+new evidence is that with it the CPU run reaches the double-precision floor (|dG| 2e-10 on a 526 Ha quantity; the
+1e-11 criterion is below roundoff) with step failures only at the 1e-10 level, while without it the run cannot be
+converged below ~1e-7 in 200 iterations and projection reuse plays no role (base_prof shows the same jump).
+
+Caveat on the final energies: the three runs end in different electronic states. Final nElectrons 108.3129 / 108.3179
+/ 108.2702 and total moment +0.063 / +0.048 / +0.213 (HEAD / base_prof / Lowdin; the surface-O moment is 0.80 / 0.78 /
+0.92), with G within 5e-6 Ha of each other. The Lowdin run's stationary point (|grad| 8e-9) lies 4.7e-6 Ha above
+base_prof's iteration-200 value, which was still descending at 1e-7 per iteration. The descent from the plateau is a
+slow collective mode (charge exchange with the reservoir plus moment) along which G is flat to ~1e-6 Ha, so neither
+|dG| nor |grad| discriminates between these states and a "roundoff" stop can land anywhere along it. The
+reversibility conclusion rests on the iteration-38 signature, not on the final energies; which of the three states
+is the minimum is open, and this flat mode, not per-iteration cost, is what the production tails are made of.
+
+Consequence for the GPU floor: the GPU runs show the same signature (undo does not restore G, failed steps at alpha
+8e-6) but patch 02 did not remove it there (test B: 12 vs 9 failed steps, max increase 4.4e-7 vs 2.0e-7), so there is
+an additional GPU/MPI-specific source. Suggested GPU tests, cheapest first: (a) `caseA_tight`-style long run (1e-11,
+200 iterations) with p1 and p12 at np=1 (all states on one GPU) and np=4; (b) the same without the fluid;
+(c) `fluid-minimize knormThreshold 1e-14`. If (a) at np=1 converges with p12, the floor is in the replicated or
+distributed real-space work (the XC split above is one such rank-dependent reduction).
+
+### Cheap non-equivalent wins already identified
+
+- Cap the initial vacuum pre-solve in `elecFluidMinimize` (it only provides a starting guess but runs with the
+  production `energyDiffThreshold`; 100 iterations and 12% of the first job in the production log).
+- A looser `energyDiffThreshold` (~1e-7) for 1e4-Ha systems once the floor is understood (16-20% of iterations).
