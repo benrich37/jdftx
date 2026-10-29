@@ -22,6 +22,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >     `git log --stat origin/<branch>..<branch>` first. If the push would also carry code commits, or the branch is
 >     `master`, ask.
 >   - Everything else follows the usual rules: push only Claude-owned branches, never `master`, and ask otherwise.
+> - **Notes stay machine-aware** (user, 2026-10-29). Observations in these files belong to the machine they were made on
+>   (Mac CPU, Perlmutter GPU, Anvil, ...). If a new measurement disagrees with an existing claim, do not change the
+>   claim: leave it in place and add a note next to it saying what you saw, where and when (e.g. "Perlmutter,
+>   2026-10-29: 10% here, not 30%"). Label every new result with its machine and setup. Plain typo fixes in your
+>   own machine's notes are fine.
 >
 > **First-time setup in a new clone** (run once from the repository root; safe to re-run). Before setup you can
 > read this file with `git fetch origin claude-md && git show origin/claude-md:CLAUDE.md`.
@@ -328,7 +333,8 @@ van der Waals module" above) in the production layout (4 ranks × 32 threads, 1 
 `JDFTX_MEMPOOL_SIZE=36000`): old = the `74dd6931` production builds, new = `4fe71c77` built with the same recipes (CMake
 cache identical), run back to back on the same node. Workspace `/pscratch/sd/b/beri9208/claude_scratch/eff_d3/`
 (README with results, `build.sh`, `inputs/gen_vdw_input.py`, `job_vdw.sh`, `job_e2e.sh`, `compare.py`, outputs in
-`runs/`, Slurm logs in `logs/`); debug jobs 60503563, 60503565, 60503566.
+`runs/`, Slurm logs in `logs/`); debug jobs 60503563, 60503565, 60503566. Full write-up with setup details:
+"DFT-D3 speedup `a37d055f`: Perlmutter GPU results" at the end of `efficiency_notes.md` (`efficiency_testing`).
 
 | case (D3BJ unless noted) | managed build, 40GB node: old → new | default build, 80GB node: old → new |
 |---|---|---|
