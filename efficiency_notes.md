@@ -428,3 +428,72 @@ distributed real-space work (the XC split above is one such rank-dependent reduc
 - Cap the initial vacuum pre-solve in `elecFluidMinimize` (it only provides a starting guess but runs with the
   production `energyDiffThreshold`; 100 iterations and 12% of the first job in the production log).
 - A looser `energyDiffThreshold` (~1e-7) for 1e4-Ha systems once the floor is understood (16-20% of iterations).
+
+## Local CPU builds on a small solvated molecule (2026-10-29)
+
+Written by a research-side session choosing the local build for the Patty reference-molecule opts and vibs
+(`~/vs/research/Patty/gen/run_local_mol_{opts,vibs}.py`). No code was changed.
+
+### Setup
+
+- **System:** glycinate NH2CH2COO⁻ (9 atoms, charge −1), single point from its relaxed geometry, Patty settings.
+  - GBRV 20/100 Ha, PBE-D3BJ, z-spin, Fermi 0.001, `coulomb-interaction Isolated` in a 37.79-bohr (20 Å) cube.
+  - LinearPCM CANDLE with 1 M K+/F-, `energyDiffThreshold 1e-9`, `fluid-minimize knormThreshold 1e-13`.
+  - nbasis 230k, nBands 24, 2 states.
+  - Fresh LCAO start, so each run is a vacuum pre-solve followed by the solvated minimization.
+- **Builds** (all Release with `EnableProfiling`, Accelerate BLAS, no MKL):
+  - `build_merged`: upstream b3c54e1d + projection reuse.
+  - `build_eff`: branch HEAD `a37d055f`, i.e. `build_merged` + the D3 pair-sum speedup.
+  - `build_eff2`: `build_eff` + the uncommitted survey prototypes in the `jdftx_eff` clone (zgemm thread threshold
+    1e6 MACs; XC no-split, which does nothing on CPU at np = 1). Its banner says `a37d055f` anyway.
+- **Method:** one build after another at `-c 6` on the M5 Pro (6 + 12 cores, 64 GB), in normal interactive use, so
+  differences of a few percent are noise.
+
+### Results
+
+| Build | Wall (s) | Vacuum: iterations, s/iter | Solvated: iterations, s/iter | Final F (Ha) |
+|---|---|---|---|---|
+| `build_merged` | 658.6 | 32, 5.75 | 17, 20.38 | −56.102161447 |
+| `build_eff` | 676.8 | 32, 6.06 | 17, 20.57 | −56.102161447 |
+| `build_eff2` | 664.4 | 32, 5.90 | 17, 20.32 | −56.102161447 |
+
+- All three are the same within the noise (2.7% spread), with identical iteration counts. The final F agrees between
+  builds to 1e-9 Ha, and with the original GPU ion opt (−56.102161448).
+- Peak memory is 11.7 GB (`MEMUSAGE Total`) in every build. Nearly all of it is grid arrays: `ScalarField` 7.95 GB and
+  `ScalarFieldTilde` 4.94 GB, against `ColumnBundle` 0.75 GB.
+- `user/real` is 4.8 at `-c 6` (about 80% thread efficiency). Other thread counts were not measured.
+- Profile of `build_merged` (the other builds are within ±4% per entry), out of 659 s wall:
+
+  | Entry | Total (s) | Share |
+  |---|---|---|
+  | `EdensityAndVscloc` (includes the LinearPCM solves) | 347 | 53% |
+  | `augmentDensityGridGrad` + `augmentDensityGrid` | 95 + 73 | 25% |
+  | `Idag_DiagV_I` + `diagouterI` | 45 + 40 | 13% |
+  | `ExCorrTotal` | 27 | 4% |
+  | `Y1^Y2` + `Y*M` | 21 + 13 | 5% |
+  | `VanDerWaalsD3::energyAndGrad` | 0.07 | — |
+
+### Conclusions
+
+- For isolated molecules in large boxes, neither the kept changes (projection reuse, D3 speedup) nor the
+  `build_eff2` prototypes matter. The wavefunction products they target are about 5% of the run, and D3 costs
+  nothing at 9 atoms. Local production uses `build_eff`: it is the committed HEAD, and its banner matches its code.
+- The cost is in grid work, so different targets matter here than for the slabs:
+  - **Fluid solves.** A solvated iteration costs 3.5x a vacuum one (20.4 vs 5.8 s). The difference is mostly the
+    LinearPCM solve inside `EdensityAndVscloc`, which takes 14-34 CG iterations per call at `knormThreshold 1e-13`.
+    Whether 1e-13 is needed for molecule free energies (and vibrations) is untested. It overlaps with the
+    GPU next step of varying `knormThreshold`.
+  - **Vacuum pre-solve.** It took 32 iterations, about 185 s, or 28% of this single point. That makes the existing
+    "cap the vacuum pre-solve" item much bigger for small molecules than for the slab (12%). Opts and vibs restart
+    from saved wavefunctions, so the cap would mainly help first runs.
+  - **USPP grid augmentation.** It took 25% for only 9 atoms (0.16-0.38 s per call). Worth checking whether
+    `augmentDensityGrid(Grad)` scales with the box (full grid) or with the atoms (spheres around them).
+  - **Memory.** It scales with the box volume, not with the molecule, and caps local concurrency at 3-4 molecules.
+
+### Reproducing
+
+`~/Desktop/jdftx_hold/patty_mol_build_benchmark/`:
+- `bench.in` and `run_bench.sh [threads] [builds...]` run the builds one after another.
+- `summarize.py` prints the tables from `out_<build>_c<n>` and `time_<build>_c<n>`.
+- `bench_short.in` and `run_threads.sh <build> <threads...>` (12 vacuum + 12 solvated iterations) are a ready
+  thread-scaling test, not yet run.
