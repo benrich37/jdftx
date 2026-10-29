@@ -3,12 +3,17 @@
 Branch `efficiency_testing`, originally based on upstream e305ab5d, merged with upstream through b3c54e1d on 2026-10-26.
 Two changes were tested:
 
-1. `bd608a26` Reuse ultrasoft pseudopotential projections in ElecMinimizer. **Kept**; this is the only code change on the branch.
+1. `bd608a26` Reuse ultrasoft pseudopotential projections in ElecMinimizer. **Kept**; this is the only code change on the branch
+   (true until `a37d055f`, item 3, was added on 2026-10-28).
 2. `f047b9b0` Use symmetric (Lowdin) orthonormalization when fillings vary per band. **Tested and found to show no
    improvement; removed** by the revert `5c09112b`. See "Change 2" for how to recover it.
+3. `a37d055f` Speed up DFT-D3 pair sums in `VanDerWaalsD3.cpp` (2026-10-28). **Kept**; results unchanged (Mac: 2e-12;
+   Perlmutter GPU: 5e-15 Ha). Perlmutter timings are in "DFT-D3 speedup `a37d055f`: Perlmutter GPU results" below.
 
 CPU testing was on an arm64 Mac (Accelerate BLAS, Release build with `EnableProfiling`).
 The GPU results are in "GPU results" below (Perlmutter, 4 A100-80GB, 2026-10-24/25).
+Perlmutter results for the D3 speedup, and the end-to-end gain of the branch tip over the current production build on
+40GB nodes, are in "DFT-D3 speedup `a37d055f`: Perlmutter GPU results" (2026-10-29) at the end.
 Summary: change 1 is 27% faster per iteration on GPU, with identical results, and uses 6.5 GiB less memory per GPU.
 Change 2 neither helped nor removed the noise floor on GPU, so it was removed.
 
@@ -206,7 +211,13 @@ differ by at most 1.1e-7 Ha (ionSolvation CANDLE).
    or a `knormThreshold`. That would save the roughly 16-20% of iterations spent in the tail.
 3. Try p1 on 40GB nodes for the 255-atom Ni_B adsorbates. They peaked at 45.4 GiB on base and should be about 39 GiB with change 1,
    which is marginal but may avoid the 2-2.5x slower managed-memory build.
+   - Perlmutter, 2026-10-26/29: with the *managed* build, `74dd6931` peaked at 38.4 GB on the 255-atom input (45.4 on
+     `54315e95`) and `4fe71c77` at 36.3 GB on the 224-atom production input, both on 40GB nodes. The non-managed build has
+     not been tried on 40GB nodes yet (see the Perlmutter D3 section at the end).
 4. Production builds: use change 1 (`bd608a26`) on top of master, and leave out change 2.
+   - Perlmutter, 2026-10-26: done as `~/jdftx_compile_test/ben/build-gpu-{,managed-}eff-74dd6931` (validated against the
+     `54315e95` builds, job 60345288). 2026-10-29: `$JDFTx_GPU` in `~/.jdft.bashrc` still points at
+     `build-gpu-managed-54315e95`; builds of the tip `4fe71c77` exist only on scratch (`claude_scratch/eff_d3/`).
 
 ## Merge with upstream (2026-10-26)
 
@@ -497,3 +508,89 @@ Written by a research-side session choosing the local build for the Patty refere
 - `summarize.py` prints the tables from `out_<build>_c<n>` and `time_<build>_c<n>`.
 - `bench_short.in` and `run_threads.sh <build> <threads...>` (12 vacuum + 12 solvated iterations) are a ready
   thread-scaling test, not yet run.
+
+## DFT-D3 speedup `a37d055f`: Perlmutter GPU results (2026-10-29)
+
+Written by the Perlmutter session (NERSC, A100 nodes). No code was changed; this measures `a37d055f` as pushed. The
+timings in its commit message (250-atom slab, one call: 16.8 s → 0.017 s at `-c 8`, 0.34 s → 0.098 s at `-c 1`) are Mac CPU
+numbers and stand as they are; below is what the same change does on Perlmutter GPUs in the production layout.
+
+### Setup
+
+- **Builds.** Old = the `74dd6931` production builds in `~/jdftx_compile_test/ben`: `build-gpu-eff-74dd6931` (CUDA 13.2) and
+  `build-gpu-managed-eff-74dd6931` (`CudaManagedMemory=yes`, CUDA 12.9 + cray-mpich 9.0.1, RPATH-pinned). New = `4fe71c77`
+  built with the same two recipes into `/pscratch/sd/b/beri9208/claude_scratch/eff_d3/build-gpu-{,managed-}4fe71c77`
+  (CMake caches identical apart from the loaded conda module version; `ldd` NEEDED lists identical). All builds have
+  `EnableProfiling`; the timed quantity is `PROFILER: VanDerWaalsD3::energyAndGrad`, which covers only the vdW routine.
+- **Layout and environment,** as in production: 1 node, 4 ranks × 32 threads, one A100 per rank, `--gpu-bind=none`,
+  `JDFTX_GPU_SYNC_MPI=1`, `JDFTX_MEMPOOL_SIZE=36000`, `jdftx/gpu` module loaded, binaries called by full path (`ldd` showed
+  each build's own `libjdftx_gpu.so`). Old and new ran back to back on the same node. Debug QOS, 40GB nodes for the managed
+  builds, an 80GB node for the default builds.
+- **Method:** lj-override, as in CLAUDE.md "Testing and benchmarking the van der Waals module": the production `in` reduced to
+  lattice, species, ions, `elec-ex-corr`, `van-der-waals`, plus `elec-cutoff 5`, `lj-override 105.83544` (= the production
+  200 bohr D3 cutoff) and `ionic-minimize nIterations 1` (energy and forces; the number of D3 calls depends on the line
+  search), `lattice-minimize nIterations 1` for stress. Inputs: the 224-atom `310_fixed_1x3_trim_Ni_B/CH2COO/p07V/Mn_Mn-O_O-bi`
+  production slab (D3BJ; also run with `van-der-waals D3` for zero damping), the 255-atom `NH2CH2COO Ni_Mn-O_O-bi`
+  adsorbate (D3BJ), and the NO3H molecule (D3). Generator: `eff_d3/inputs/gen_vdw_input.py`.
+
+### Time per `VanDerWaalsD3::energyAndGrad` call
+
+| case (D3BJ unless noted) | managed build, 40GB node: old → new | default build, 80GB node: old → new |
+|---|---|---|
+| 224-atom slab, `ionic-minimize 1` (13 calls) | 41.3 → 0.26 s | 19.3 → 0.20 s |
+| 255-atom slab, `ionic-minimize 1` (5 calls) | 53.4 → 0.29 s | 24.9 → 0.25 s (3.1 s at 1 thread per rank) |
+| 224-atom slab, `lattice-minimize 1` (stress, 10 calls) | | 19.6 → 0.23 s |
+| 224-atom slab, D3 zero damping (3 calls) | | 19.1 → 0.22 s |
+| NO3H molecule, D3 (3 calls) | | 0.028 → 0.014 s |
+
+- Old and new agree to ≤ 5e-15 Ha in the total energy and EvdW, ≤ 1e-14 Ha/bohr in every force component; the printed
+  stress tensors and coordination numbers are identical. Checked for D3BJ, D3 zero damping and the molecule
+  (`eff_d3/compare.py`).
+- The old code was 2.1x slower per call on the managed build than on the default build (41 vs 19 s). The new code costs
+  about the same on both (0.20-0.29 s), so on the managed 40GB production setup the saving is ~40-53 s per call.
+- Per call, the new code is about 10x slower here than the Mac's `-c 8` figure (0.20-0.29 s vs 0.017 s), and 3.1 s at 1 thread
+  per rank (Mac `-c 1`: 0.098 s). Not investigated; the profiled time includes the MPI reductions and the per-call
+  `report()` output, and these slab cells (16 × 59 × 70 bohr) need many neighbor cells for the 200 bohr cutoff. At 0.3 s
+  per call this no longer matters for production.
+
+### End-to-end on the production configuration
+
+Same node type and environment as production (40GB node, managed builds), the production `in` of the 224-atom
+`Ni_B/CH2COO/p07V/Mn_Mn-O_O-bi` run restarted from its state files (wfns, fillings, eigenvals, fluidState of
+2026-10-29 10:00, copied to `eff_d3/state224/`), 10 ElecMinimize iterations with `energyDiffThreshold 0`, then forces.
+Old = `build-gpu-managed-54315e95` (the current `$JDFTx_GPU`), new = managed `4fe71c77`. Job 60503566.
+
+| | old: managed `54315e95` | new: managed `4fe71c77` |
+|---|---|---|
+| s/iter, steady iterations | 29.8-30.2 | 19.1-19.2 (−36%) |
+| s/iter mean over 10 (incl. one step-back iteration) | 34.1 | 22.3 |
+| D3 per call (3 calls) | 42.3 s | 0.27 s |
+| job wall (setup + 10 iterations + forces) | 521 s | 285 s |
+| MEMUSAGE total per GPU | 42.96 GB | 36.26 GB |
+
+Both runs took the same path (identical alpha, "Predicted alpha/alphaT" and "Step increased G" events). G differs by 5e-11 Ha at
+iteration 1 and 5e-8 Ha at iteration 10 (floating-point order of projection reuse, while G is still falling by ~1e-2 Ha per
+iteration); final forces differ by 4e-7 Ha/bohr.
+
+### Estimate for the current production runs (Perlmutter)
+
+Four recent 5 h jobs (224-228-atom slabs, PBE+U+D3BJ+CANDLE, `ionic-minimize`, managed `54315e95` on 40GB nodes): ElecMinimize
+iterations are 81-86% of wall time at 33.5-36.9 s/iter (414-437 iterations, 6-9 ionic steps per job); D3 is 14-20 calls at ~40 s
+(~4%); the rest (LCAO, forces, the 28 GB `wfns` dump per ionic step) ~13%. With −36% per iteration and D3 → 0, switching
+`$JDFTx_GPU` from `managed-54315e95` to a `4fe71c77` build should cut wall time per ionic step by about a third (~1.5x
+throughput, ~10 → ~14-15 ionic steps per 5 h job). About 5 points of that are the D3 change; the rest is projection reuse,
+which the `74dd6931` production builds already have.
+
+### Open (Perlmutter)
+
+- The peak of 36.3 GB with projection reuse suggests the *non-managed* build might now fit these slabs on 40GB nodes. In Test A
+  (80GB, 218 atoms) the default build did 11.9 s/iter, vs 19.2 s/iter for managed on 40GB here, so it could be much faster if the
+  allocation cache does not push it over 40 GB. Untested.
+- Production builds of `4fe71c77` (both flavors) in `~/jdftx_compile_test/ben`, then the `$JDFTx_GPU` switch by the user.
+
+### Reproducing (Perlmutter)
+
+`/pscratch/sd/b/beri9208/claude_scratch/eff_d3/`: `README.md` (results), `build.sh default|managed`, `inputs/` with
+`gen_vdw_input.py` and `gen_e2e_input.py`, `job_vdw.sh` (old vs new per case, same node), `job_e2e.sh`, `compare.py vdw
+default|managed` / `compare.py e2e`, outputs in `runs/`, Slurm logs in `logs/`. Jobs 60503563 (vdw, managed, 40GB),
+60503565 (vdw, default, 80GB), 60503566 (e2e, 40GB).
