@@ -13,6 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > - **After every edit, save and push:** `git save-claude-md "what changed" && git push origin claude-md`.
 >   `save-claude-md` commits the working-tree file to `claude-md` without switching branches. Both aliases are
 >   local to each clone's `.git/config`; if `git save-claude-md` says "not a git command", run the setup below.
+> - **Pulling and pushing `claude-md` needs no per-action approval** (granted by the user 2026-10-29): this file is
+>   how the agents on different machines communicate, so fetch it before editing and push after saving as part of
+>   normal work. The exception covers only this branch; code branches still follow the usual rules (push only
+>   Claude-owned branches, never master, ask otherwise).
 >
 > **First-time setup in a new clone** (run once from the repository root; safe to re-run). Before setup you can
 > read this file with `git fetch origin claude-md && git show origin/claude-md:CLAUDE.md`.
@@ -240,8 +244,10 @@ delete them.
 ## Branch notes: electronic minimizer efficiency (`efficiency_testing`)
 
 Rationale, tests and A/B timings are in `efficiency_notes.md` on that branch (patches in `efficiency_patches/`).
-Merged with upstream through b3c54e1d (2026-10-26); the branch's only code change is projection reuse
-(ctest 11/11 on CPU and GPU; upstream merge checks in `efficiency_notes.md`):
+Merged with upstream through b3c54e1d (2026-10-26). Code changes: projection reuse (below; ctest 11/11 on CPU and
+GPU, upstream merge checks in `efficiency_notes.md`) and the DFT-D3 pair-sum rewrite `a37d055f` (2026-10-28; see
+"DFT-D3 speedup" below). `efficiency_notes.md` also has a 2026-10-28 survey of further candidates (`nAugmentGrad_gpu`
+launch overhead, skipping the XC MPI split on GPU, batched FFTs, Cholesky step irreversibility); none are in the code yet.
 - **Projection reuse** (`bd608a26`): with ultrasoft psps, O(C) = C·detR + V·Q·(V^C), and V^C products
   (nProj×nBands×nbasis) dominate an ElecMinimize iteration because nProj > nBands. `ElecVars::VdagC[q]` must
   always hold the projections of the current `C[q]`: `dagO()` builds overlaps from cached projections,
@@ -301,5 +307,45 @@ Full tables and discussion: "GPU results" in `efficiency_notes.md` on `efficienc
    About 15 min each in debug.
 2. Then use a looser stop for 1e4-Ha systems (`energyDiffThreshold` about 1e-7) to cut the tail.
 3. Try p1 for the 255-atom Ni_B adsorbates on 40GB nodes (45.4 GiB on base, so about 39 GiB expected).
-4. Production builds: change 1 on top of master, without change 2.
+4. Production builds: change 1 on top of master, without change 2. Done 2026-10-26 for `74dd6931`
+   (`~/jdftx_compile_test/ben/build-gpu-{,managed-}eff-74dd6931`, validated against the `54315e95` builds); builds of the
+   branch tip `4fe71c77` (adds the D3 speedup) are still pending there, see below.
 5. The 9 `wfns` copies were deleted on 2026-10-26 (with the user's OK). The run directories keep `in`, `out`, the small state files and `run_info.txt` (502 MB). A rerun needs `wfns` copied again from the production directory.
+
+#### DFT-D3 speedup `a37d055f` (GPU results, Perlmutter, 2026-10-29)
+
+`a37d055f` (branch tip `4fe71c77`) rewrites the pair sums in `VanDerWaalsD3.cpp` only (header unchanged): C6
+interpolation weights computed once per atom and contracted on plain arrays instead of three tiny matrix products per
+ordered atom pair (on GPU each was a cuBLAS call with transfers), neighbor cells listed once per call, threads split the
+first atom of each pair, integer powers instead of `std::pow`. The heteronuclear C6 indexing bug in `getPairParams` is
+kept on purpose (marked TODO) so results are unchanged. Tested with the lj-override method ("Testing and benchmarking the
+van der Waals module" above) in the production layout (4 ranks × 32 threads, 1 A100 each, `JDFTX_GPU_SYNC_MPI=1`,
+`JDFTX_MEMPOOL_SIZE=36000`): old = the `74dd6931` production builds, new = `4fe71c77` built with the same recipes (CMake
+cache identical), run back to back on the same node. Workspace `/pscratch/sd/b/beri9208/claude_scratch/eff_d3/`
+(README with results, `build.sh`, `inputs/gen_vdw_input.py`, `job_vdw.sh`, `job_e2e.sh`, `compare.py`, outputs in
+`runs/`, Slurm logs in `logs/`); debug jobs 60503563, 60503565, 60503566.
+
+| case (D3BJ unless noted) | managed build, 40GB node: old → new | default build, 80GB node: old → new |
+|---|---|---|
+| 224-atom slab, `ionic-minimize nIterations 1` (13 D3 calls) | 41.3 → 0.26 s/call | 19.3 → 0.20 s/call |
+| 255-atom slab, `ionic-minimize nIterations 1` (5 calls) | 53.4 → 0.29 s | 24.9 → 0.25 s (3.1 s with 1 thread/rank) |
+| 224-atom slab, `lattice-minimize nIterations 1` (stress) | | 19.6 → 0.23 s |
+| 224-atom slab, D3 zero damping | | 19.1 → 0.22 s |
+| NO3H molecule, D3 | | 0.028 → 0.014 s |
+
+Old and new agree to ≤5e-15 Ha (energy, EvdW) and ≤1e-14 Ha/bohr (forces); stress and coordination numbers are identical.
+
+End-to-end on the production configuration (40GB node, managed builds, production env and `in` of the 224-atom
+`Ni_B/CH2COO/p07V/Mn_Mn-O_O-bi` run, 10 ElecMinimize iterations with `energyDiffThreshold 0` from its state files),
+current `$JDFTx_GPU` `build-gpu-managed-54315e95` vs managed `4fe71c77`: 30.0 → 19.2 s/iter (−36%), D3 42.3 → 0.27 s per
+call, MEMUSAGE total 42.96 → 36.26 GB per GPU, same trajectory (identical step events; G within 5e-8 Ha after 10
+iterations, final forces within 4e-7 Ha/bohr). In the current production runs (224–228-atom slabs, PBE+U+D3BJ+CANDLE,
+`ionic-minimize`, 5 h jobs) ElecMinimize is ~83% of wall time at ~35 s/iter and D3 (14–20 calls × ~40 s) ~4%, so
+switching the primary build from `managed-54315e95` to a `4fe71c77` build should cut wall time per ionic step by about
+a third (~1.5× throughput); about 5 points of that are the D3 change, the rest projection reuse.
+
+Status 2026-10-29: `~/.jdft.bashrc` still points `$JDFTx_GPU` at `build-gpu-managed-54315e95` (only the user can edit
+that file). The `4fe71c77` builds exist only on scratch (`eff_d3/build-gpu-{,managed-}4fe71c77`); production copies in
+`~/jdftx_compile_test/ben` are not made yet. Open question: whether the non-managed build now fits these slabs on 40GB
+nodes (peak 36.3 GB with projection reuse; the default build did 11.9 s/iter on the 218-atom slab on 80GB in Test A, vs
+19.2 s/iter managed on 40GB here, so it could be much faster if the cache does not push it over 40 GB). Untested.
