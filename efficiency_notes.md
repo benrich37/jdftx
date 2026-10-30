@@ -513,8 +513,12 @@ These numbers come from the Patty production runs (`build_eff`, runner logs in
   to 45-55 s/iter. That is worse in total than one job at `-c 12`, which ran 11.6 s/iter (a glycinate vib on
   `build_merged`, 2026-10-26).
 - **Two at once fits.** After one job was stopped, the other two (still `-c 5`) dropped to 20-28 s/iter within minutes,
-  with 10 GB of compression and 7.7 GB free. Production now runs 2 x `-c 8`. Its per-iteration time is not yet
-  measured, and the `run_threads.sh` test below would settle the best split.
+  with 10 GB of compression and 7.7 GB free. Production now runs 2 x `-c 8`. In five solvated vibs (3-8 atoms), the
+  median was 13.8-16.6 s/iter, about 3.5 min per displacement. That is 0.13 iter/s in total, against 0.086 for one
+  job at `-c 12`. The `run_threads.sh` test below would settle the best split.
+- **Profiling builds and output checks.** `EnableProfiling` builds print the PROFILER and MEMUSAGE tables after
+  `Done!`. A script that tests whether `out` ends with `Done!` will flag every finished run as failed. The Patty vib
+  runner did this, and it now searches for a `Done!` line instead.
 - **Memory is the local throughput limit for molecules.** Shrinking the grid arrays (`ScalarField` 7.95 GB,
   `ScalarFieldTilde` 4.94 GB in a 20 Å box) would let a third job run.
 - **Vacuum pre-solve, worst case.** For CO3²⁻ (charge −2, `Isolated`, 20 Å box), the vacuum pre-solve is an unbound
