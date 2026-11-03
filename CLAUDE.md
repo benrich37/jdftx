@@ -83,6 +83,12 @@ CC=cc CXX=CC CUDAARCHS=80 cmake \
     ../jdftx-git/jdftx
 make -j16
 ```
+Perlmutter production builds since 2026-10-29 are instead compiled with the user's own module `~/modules/jdftx/gpu.lua`
+through a self-contained driver, `~/jdftx_compile_test/ben/build-eff-4fe71c77.sh` (copy and edit it for a new commit).
+It writes `run_env.sh` (the build's library environment) and `BUILD_INFO` into the build directory; both are required
+by the channel system below. The group module directory `/global/cfs/cdirs/m4025/Software/Perlmutter/modules` is
+read-only for agents.
+
 Translating to another cluster:
 - `CC`/`CXX` must be the MPI compiler wrappers (`cc`/`CC` on Cray; `mpicc`/`mpicxx` elsewhere). If several MPI
   stacks are installed, pass the one FFTW was built against by full path (`-D MPI_CXX_COMPILER=...`,
@@ -92,8 +98,11 @@ Translating to another cluster:
   find system/OpenBLAS libraries. `EnableScaLAPACK`, `EnableHDF5` and `EnableLibXC` are optional; turn on only what
   the cluster's modules provide.
 - `CMAKE_LIBRARY_PATH="${LD_LIBRARY_PATH//:/;}"` lets CMake find libraries that modules expose only through
-  `LD_LIBRARY_PATH`. Run cmake, make *and jobs* with the same modules loaded. Perlmutter job scripts load no
-  modules and rely on `sbatch` exporting the submitting shell's environment (the default `--export=ALL`).
+  `LD_LIBRARY_PATH`. Run cmake, make *and jobs* with the same modules loaded, unless the build carries its own
+  `run_env.sh`: for Perlmutter production jobs since 2026-10-29, perlStuff sources the chosen build's `run_env.sh` for
+  the `srun` launch only, so the modules loaded in the submitting shell no longer matter (channel system below). The
+  legacy path (`$JDFTx_GPU` frozen at submission, resolution step 4) still loads no modules in the job script and
+  relies on `sbatch` exporting the submitting shell's environment (the default `--export=ALL`).
 - Set `-D CudaAwareMPI=yes` only if the MPI library really is CUDA-aware (Cray MPICH with
   `MPICH_GPU_SUPPORT_ENABLED=1`; Open MPI built with CUDA). Otherwise leave it OFF.
 - Never modify group or shared installs (e.g. `/global/cfs/cdirs/m4025/**` on Perlmutter). Build in your own
@@ -124,6 +133,48 @@ Running a freshly built binary:
 - Use the debug queue with short limits for tests, and ask the user before submitting any job. Perlmutter tests
   used `-C gpu -A m4025_g -q debug -N 1 -c 32 --ntasks-per-node=4 --gpus-per-task=1 --gpu-bind=none`. The
   `--gpu-bind=none` causes a harmless Cray GTL warning ("not using the same device it did during gtl_init").
+
+### Perlmutter production builds and channels (since 2026-10-29)
+
+Verified on Perlmutter 2026-10-29 to 2026-11-03. The calculation-side rules (how to write `psubmit.sh`, which node type,
+the `jdftx_build` override file) are in the research repo's root `CLAUDE.md` (`~/vs/research`, "Submitting to
+Perlmutter: JDFTx build channels"); this section is the build side.
+- A production job no longer uses the executable in `$JDFTx_GPU` at `sbatch` time. The build is chosen when the job
+  starts by `~/perlStuff/perlStuff/helpers/jdftx_channel.py`, called from `helpers/calc_helpers.py::get_exe_cmd` (opt4.py
+  and ~40 other perlStuff scripts; `opt6_self_contained.py` has its own launcher and is NOT covered). The hook exists only
+  in that Perlmutter working copy (branch master, **uncommitted**: `calc_helpers.py` modified, `jdftx_channel.py`
+  untracked); a laptop clone of perlStuff does not have it. Never "fix" `calc_helpers.py` from another machine or
+  `git checkout`/`git pull` on Perlmutter in a way that discards it.
+- Resolution order, first hit wins: (1) `<job submit dir>/jdftx_build`, first non-comment word = channel name or build
+  directory; (2) `$JDFTx_GPU_CHANNEL` from `psubmit.sh`; (3) `~/jdftx_prod/adopt`, mapping a frozen legacy `$JDFTx_GPU`
+  path to a channel (`build-gpu-managed-54315e95 -> managed`, `build-gpu-54315e95 -> default`,
+  `build-gpu-mpifix-10-20-26 -> managed`); (4) `$JDFTx_GPU` as frozen at submission (legacy, no `run_env.sh`). A failure
+  in 1-3 logs `WARNING: JDFTx build resolution failed (...)` and falls through to 4, so the job runs on the OLD build.
+- Channels are symlinks in `~/jdftx_prod/channels/`: `managed` ->
+  `~/jdftx_compile_test/ben/build-gpu-managed-eff-4fe71c77` (CUDA managed memory, CUDA 12.9 + cray-mpich 9.0.1) and
+  `default` -> `~/jdftx_compile_test/ben/build-gpu-eff-4fe71c77` (CUDA 13.2, plain device memory); both commit
+  4fe71c77 of benrich37/jdftx efficiency_testing (D3 rewrite + projection reuse), promoted 2026-10-29 14:40.
+  `~/jdftx_prod/channels/HISTORY` records every change. A channel is resolved once per process: a running job keeps
+  its build when the channel is repointed; every job that starts afterwards, across all projects, gets the new one.
+  Pin a job with `jdftx_build <build dir>` if it must keep a specific build.
+- Promote: `~/jdftx_prod/bin/jdftx-promote <channel> <build_dir>` (refuses a build without `run_env.sh`, with
+  unresolved libraries, or on `/pscratch`; swaps the symlink atomically). Rollback:
+  `~/jdftx_prod/bin/jdftx-promote managed ~/jdftx_compile_test/ben/build-gpu-managed-54315e95` and
+  `... default ~/jdftx_compile_test/ben/build-gpu-54315e95`; no resubmission needed. Build directories referenced by
+  channels, adopt or any `jdftx_build` file must stay in `~/jdftx_compile_test/ben/` (never `/pscratch`); the
+  54315e95 builds stay as rollback targets. Retarget one queued job with `echo managed > jdftx_build` (or `default`,
+  or a build dir) in its directory.
+- Which build where (pairing rule, never broken: **a job on 40GB nodes runs the managed build**): the ~220-266-atom
+  slabs (nBands ~1600, nbasis ~287k) peak at ~45 GiB/GPU with `default` and OOM on 40GB A100s; with `managed` they run
+  at 18.3 s per ElecMinimize iteration (220-228 atoms) and ~25 s (242-266 atoms), ~1.55x slower than `default` (was
+  1.8x with 54315e95). Use `default` for anything that fits in 40 GB: `managed` is ~5x slower on small systems (NO3H
+  single point 3m07 vs 38 s). 80GB + `default` is reserved for short expected waits (restart runs of ~220 atoms peak
+  42.6 GiB; fresh LCAO starts of the ~255-atom systems OOM'd even on 80GB).
+- Verify in `opt.iolog`: `grep "JDFTx build:\|WARNING\|exe_cmd" opt.iolog` shows the resolved executable with the
+  winning step in brackets, the `BUILD_INFO` line (`commit=4fe71c77 | flavor=managed | built=...`) and the launch
+  (`. <build>/run_env.sh && srun <build>/jdftx_gpu`). `run_env.sh` also exports `MPICH_GPU_SUPPORT_ENABLED=1` and
+  `JDFTX_GPU_SYNC_MPI=1`. In `out` expect `Run totals: 4 processes, 128 threads, 4 GPUs` and `gpuInit: sync before MPI
+  is on`. Rollout tests, the template `psubmit.sh` and the original files: `/pscratch/sd/b/beri9208/claude_scratch/build_channels/`.
 
 ### Anvil (Purdue, A100)
 
@@ -360,3 +411,11 @@ that file). The `4fe71c77` builds exist only on scratch (`eff_d3/build-gpu-{,man
 `~/jdftx_compile_test/ben` are not made yet. Open question: whether the non-managed build now fits these slabs on 40GB
 nodes (peak 36.3 GB with projection reuse; the default build did 11.9 s/iter on the 218-atom slab on 80GB in Test A, vs
 19.2 s/iter managed on 40GB here, so it could be much faster if the cache does not push it over 40 GB). Untested.
+
+Status 2026-11-03 (Perlmutter): resolved. The `4fe71c77` builds were copied to `~/jdftx_compile_test/ben/build-gpu-{,managed-}eff-4fe71c77`
+(each with `run_env.sh` and `BUILD_INFO`) and promoted to the `managed` and `default` channels on 2026-10-29 14:40; production jobs
+pick them up through perlStuff's `jdftx_channel.py` ("Perlmutter production builds and channels" above), so `~/.jdft.bashrc` no
+longer matters for new `psubmit.sh` files. The open question is answered: the non-managed build does NOT fit the 219-266-atom
+adsorbate slabs on 40GB nodes (peak ~45 GiB/GPU, OOM); managed `4fe71c77` runs them there at 18.3 s/iter (220-228 atoms) and
+~25 s/iter (242-266 atoms) in restart runs, ~1.55x slower than `default` on 80GB, and 24 such 5 h jobs ran on 2026-11-01/02
+without an OOM. Queue wait decides: 40GB 3-5 h jobs ~24 h vs 80GB ~214 h median on 2026-11-02/03.
