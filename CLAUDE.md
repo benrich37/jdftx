@@ -147,13 +147,14 @@ the `jdftx_build` override file) are in the research repo's root `CLAUDE.md` (`~
 Perlmutter: JDFTx build channels"); this section is the build side.
 - A production job no longer uses the executable in `$JDFTx_GPU` at `sbatch` time. The build is chosen when the job
   starts by `~/perlStuff/perlStuff/helpers/jdftx_channel.py`, called from `helpers/calc_helpers.py::get_exe_cmd` (opt4.py
-  and ~40 other perlStuff scripts; `opt6_self_contained.py` has its own launcher and is NOT covered). Committed
-  2026-11-05 with the user's permission as perlStuff `3121f8b`, then merged with the user's 2026-10-21 local-run commits
-  (`6e4a92b`, `0a64e90`) as `f15b6fd` and pushed to `origin/master` (via `git@github.com:benrich37/perlStuff.git`;
-  the configured https remote has no credentials on Perlmutter). The Perlmutter working copy deliberately stays at
-  `3121f8b` (3 behind origin): `git pull --ff-only` there is a clean fast-forward that keeps the hook, but it puts the
-  10-21 changes live for every job that starts afterwards, so get the user's OK first. Every clone that pulls master
-  (laptop, Anvil) now gets the resolver too; without `~/jdftx_prod` it falls back to `$JDFTx_GPU`/`$JDFTx` unchanged.
+  and ~40 other perlStuff scripts; `opt6*.py` and `ase_opt_self_contained/` run JDFTx in-process through `pyjdftx` and
+  are NOT covered). On 2026-11-05, with the user's permission, the hook was committed as perlStuff `3121f8b`, merged
+  with the user's 2026-10-21 local-run commits (`6e4a92b`, `0a64e90`) as `f15b6fd`, and pushed to `origin/master`.
+  The Perlmutter working copy was fast-forwarded after a check that the opt4 production path is unaffected. As of
+  `1fb5533`, perlStuff also ignores `__pycache__` and its `CLAUDE.md` describes the resolver. That file also holds the
+  user's keep-synced rule for the Perlmutter working copy and the Anvil to-do list. Pushes from Perlmutter go over SSH
+  (`pushurl`); the https remote has no credentials there. Every clone that pulls master (laptop, Anvil) gets the
+  resolver too. Without `~/jdftx_prod`, it falls back to `$JDFTx_GPU`/`$JDFTx` unchanged.
 - Resolution order, first hit wins: (1) `<job submit dir>/jdftx_build`, first non-comment word = channel name or build
   directory; (2) `$JDFTx_GPU_CHANNEL` from `psubmit.sh`; (3) `~/jdftx_prod/adopt`, mapping a frozen legacy `$JDFTx_GPU`
   path to a channel (`build-gpu-managed-54315e95 -> managed`, `build-gpu-54315e95 -> default`,
@@ -256,7 +257,9 @@ module, a sourced file, a symlink) can still change. So the choice of build move
   Both fixes are untested. `calc_helpers.py` and `jdftx_channel.py` are shared with Perlmutter production, so any change
   there must leave the `srun` path and the two-field adopt lines working exactly as they do now. Test both machines'
   cases (the four in "Rollout that worked", plus the Anvil string) before pushing, and ask the user before pulling it
-  on either cluster.
+  on either cluster. The user wants these Anvil changes to come from Anvil sessions (2026-11-05). perlStuff's
+  `CLAUDE.md` ("Anvil: what the build channels will need") has the same to-do list next to the code, plus the
+  check list for changes to `get_exe_cmd`.
 - The current build is in the shared group dir `/anvil/projects/x-chm260113/Software/JDFTx/`. Ask the user where the
   production root and the new versioned build dirs should live. Never repoint or rebuild what others run.
 - Node types: partition `ai` has 21 nodes with 4x H100, besides the 16 nodes with 4x A100 in `gpu`. That comes from
