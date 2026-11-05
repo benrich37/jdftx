@@ -382,6 +382,22 @@ Running:
   `libmpi.so.40`. The CPU `jdftx -n` dry run succeeded (git hash 4fe71c7). **Status: unverified, not used by any job.**
   Next: a `gpu-debug` reference comparison against `build-gpu` (README check 2), then a 40GB production-like run
   (check 3). The Anvil GPUs are A100-SXM4-40GB (from `out` files), and production jobs run 2 ranks × 64 threads.
+- **Anvil scheduler (Anvil session, 2026-11-05; Slurm 26.05.4, read from config/sacct/sprio, nothing changed):**
+  - `gpu` and `gpu-debug` share nodes g[000-004,006-015] and have the same PriorityTier/JobFactor, so debug jobs get no
+    priority boost. QOS `part-gpu`: MaxWall 2 days, MaxTRESPU gres/gpu=12. QOS `part-gpu-debug`: MaxWall 30 min,
+    MaxJobsPU 1, MaxSubmitPU 2.
+  - Priority is age only: Age weight 20000 (PriorityMaxAge 7 days), FairShare 0, Partition 750, QOS 500, JobSize 500.
+    **Only 4 of a user's pending jobs accrue age at a time.** That was observed through `AccrueTime`: the user's 4 oldest
+    had it set and the other 62 showed N/A with age 0. The limit doesn't appear in the `sacctmgr` qos/assoc output. As on
+    Perlmutter, queueing deeper than a few jobs gains no priority.
+  - `bf_max_job_assoc=50`: backfill tests at most 50 of a user's jobs, in priority order. With 50 or more of the user's
+    own older jobs pending, a new debug job is never tested. Evidence: the earlier debug jobs, with no older jobs of
+    the user pending, waited 0.8-26 h. Debug job 21591351 waited 13.7 days with 158 older jobs pending; that count fell
+    below 50 on 11-03 21:20 and the job started 36 h later.
+  - User's `gpu` jobs started since 2026-10-22: 124, median wait 274 h, median run 1.00 h. Since 10-01, 184 of 276 that
+    ended hit TIMEOUT (1 h or 2 h limits). Users can only lower a pending job's time limit, so a longer walltime needs a
+    resubmission.
+  - Full pending-queue snapshot: `/anvil/scratch/x-brich/claude_scratch/queue_logs/pending_2026-11-05.tsv`.
 - Node types (`sinfo`, 2026-11-05): partitions `gpu`/`gpu-debug` have 16 nodes with 4x A100. Partition `ai` has 21 nodes
   with 4x H100 (feature `H100`, QoS `part-ai`). The user's only association is `chm260113-gpu` on partition `gpu`, so H100
   access is unconfirmed.
