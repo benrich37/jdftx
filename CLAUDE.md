@@ -317,6 +317,26 @@ Running:
 - This build predates `544d0e78`, so it ignores `JDFTX_GPU_SYNC_MPI`. It is also built without `CudaAwareMPI`,
   which the race described above requires. Pull `544d0e78` or later before rebuilding with `CudaAwareMPI=yes`.
 
+**Anvil state and job-launch path (Anvil session, 2026-11-05; read from files and Slurm, nothing run):**
+- Builds in the group dir: `build-gpu/` (2026-09-21, the `52548a96` build above) and `build-gpu-cur/` (2026-10-22). The
+  shared `jdftx-git` is now at upstream `e305ab5d`, which contains `544d0e78`. Both builds have `CudaAwareMPI=OFF`,
+  `CMAKE_CUDA_ARCHITECTURES=80` and profiling on. **Both have an empty `CMAKE_BUILD_TYPE`**, and `flags.make` shows
+  `CXX_FLAGS = -Wall -Wno-unused-result -ftemplate-depth-512 -DGPU_ENABLED` with no `-O`. Host code is therefore built at
+  gcc's default -O0, which confirms the mbook2019 pitfall on Anvil. Add `-D CMAKE_BUILD_TYPE=Release` to the next Anvil build.
+- Production `$JDFTx_GPU` comes from `~/.bashrc_export` (sourced by `~/.bashrc`):
+  `"mpirun -np 2 /anvil/projects/x-chm260113/Software/JDFTx/build-gpu/jdftx_gpu"`, which is the old build and includes the
+  launcher. `sbatch` freezes it at submission.
+- Job scripts (`anvil_submit.sh` in each calc dir: partition `gpu`, `--ntasks=2 --gpus-per-node=2`, 1 h) source
+  `anvil-env.sh` and then run `python /home/x-brich/perlstuff/opt4.py`, **both read at job start**. `opt4.py` sets
+  `use_srun=False` when the work dir contains `anvil`, and `get_exe_cmd` returns `$JDFTx_GPU` as it is. A resolver in
+  `~/perlstuff/helpers/calc_helpers.py` would therefore reach jobs that are already queued. On Anvil the adopt key is the
+  whole frozen string, launcher included. It also means **every `git pull` in `~/perlstuff` changes the code that all
+  pending jobs will run**. The 2026-11-05 fast-forward to `0a64e90` was checked: `apply_local_protections` does nothing on
+  Anvil (`SLURM_JOB_ID` is set), and `oid["gpu"]`/`oid["ddec6"]` have defaults.
+- Node types (`sinfo`, 2026-11-05): partitions `gpu`/`gpu-debug` have 16 nodes with 4x A100. Partition `ai` has 21 nodes
+  with 4x H100 (feature `H100`, QoS `part-ai`). The user's only association is `chm260113-gpu` on partition `gpu`, so H100
+  access is unconfirmed.
+
 ### mbook2019 (Ben's home CPU server: 2019 MacBook Pro 16", Ubuntu 26.04)
 
 Verified 2026-11-05 by the Claude session on that machine; its system log is `~/SERVER_NOTES.md` there. Intel i9-9880H (8 cores /
