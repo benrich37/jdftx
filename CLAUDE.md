@@ -362,8 +362,26 @@ Running:
   launch string came out byte-identical. The resolver is now live on Anvil but changes nothing until a prod root exists.
 - **Where Anvil builds live (user, 2026-11-05):** all JDFTx builds go in the group projects Software directory,
   `/anvil/projects/x-chm260113/Software/JDFTx/`, as new versioned dirs next to `build-gpu`/`build-gpu-cur` (never
-  rebuild into or repoint an existing one). The prod root (channels, adopt, HISTORY) is not decided yet; the proposal
-  is the same tree (e.g. `.../Software/JDFTx/prod`, set through `JDFTX_PROD_ROOT`).
+  rebuild into or repoint an existing one). The prod root (channels, adopt, HISTORY) will also live there, as
+  `.../Software/JDFTx/prod` set through `JDFTX_PROD_ROOT`. The user agreed on 2026-11-05 but asked that it is not created
+  yet. **User rule (2026-11-05):** the user is the only Anvil user in the group for now, but others will join. The channels
+  will switch every group member's jobs, so production must never be switched to an experimental build before it has
+  been tested and verified. The group dir's `README.md` states this, defines "verified" (3 checks), and requires each
+  build's `STATUS` file to say `status=verified` with a test record before a production channel points at it. A future
+  `jdftx-promote` on Anvil must enforce that (refuse without `status=verified`).
+- **Versioned builds on Anvil** (Anvil session, 2026-11-05): driver `.../Software/JDFTx/build-versioned.sh <full SHA> [tag]`.
+  It makes a shallow source checkout `src-<tag>-<short>/` from the fork, refuses existing dirs, and runs the
+  `run-cmake-gpu.sh` options plus `CMAKE_BUILD_TYPE=Release` (it drops the unused `CUDA_ARCH`/`CUDA_CODE`). It writes
+  `run_env.sh`, `BUILD_INFO` and `STATUS=unverified`. `run_env.sh` prepends only the module `/apps/...` PATH entries to
+  the caller's PATH, because a full snapshot leaked the builder's conda env and `~/bin`, and it sets the full module
+  `LD_LIBRARY_PATH` and `JDFTX_GPU_SYNC_MPI=1`.
+  First build: **`build-gpu-eff-4fe71c77`** (fork `efficiency_testing` 4fe71c77, the same code as tip 6a74e4e2 and as
+  Perlmutter's channels; Release; `-O3 -DNDEBUG` in `flags.make`; sm_80; CudaAwareMPI OFF; default flavor; 563 MB plus a
+  210 MB source tree; `make -j16` on login00 ~10 min). Login-node checks passed: from `env -i` shells, with and without a
+  login profile, `ldd` shows 0 not found and its own `libjdftx_gpu.so`, and `mpirun` is OpenMPI 4.1.6 matching
+  `libmpi.so.40`. The CPU `jdftx -n` dry run succeeded (git hash 4fe71c7). **Status: unverified, not used by any job.**
+  Next: a `gpu-debug` reference comparison against `build-gpu` (README check 2), then a 40GB production-like run
+  (check 3). The Anvil GPUs are A100-SXM4-40GB (from `out` files), and production jobs run 2 ranks × 64 threads.
 - Node types (`sinfo`, 2026-11-05): partitions `gpu`/`gpu-debug` have 16 nodes with 4x A100. Partition `ai` has 21 nodes
   with 4x H100 (feature `H100`, QoS `part-ai`). The user's only association is `chm260113-gpu` on partition `gpu`, so H100
   access is unconfirmed.
