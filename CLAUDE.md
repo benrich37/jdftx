@@ -182,6 +182,95 @@ Perlmutter: JDFTx build channels"); this section is the build side.
   `JDFTX_GPU_SYNC_MPI=1`. In `out` expect `Run totals: 4 processes, 128 threads, 4 GPUs` and `gpuInit: sync before MPI
   is on`. Rollout tests, the template `psubmit.sh` and the original files: `/pscratch/sd/b/beri9208/claude_scratch/build_channels/`.
 
+### Porting the build channels to another cluster, and choosing node types (for the Anvil agent)
+
+Written by the Perlmutter session, 2026-11-05. Everything below was built and measured on Perlmutter only. Its files
+can't be reached from other machines: the perlStuff hook is uncommitted, and `~/jdftx_prod` and the research-repo
+`CLAUDE.md` are not on Anvil. So this is a spec to reimplement, not files to copy. Ask the user before you patch the
+live job-launch code (every queued job picks the change up when it starts), before you write into a shared group
+directory, and before you submit any job.
+
+**Why it exists.** The user rebuilds JDFTx faster than queued jobs start, and resubmitting a job loses its queue
+position. `sbatch` copies the job script and (with the default `--export=ALL`) the submitting shell's environment at
+submission, and Slurm can't change either for a pending job. What the job *reads when it starts* (an imported Python
+module, a sourced file, a symlink) can still change. So the choice of build moved from submission to job start.
+
+**Parts** (~150 lines in total on Perlmutter; resolution order and fallback are in the section above):
+- *Immutable, versioned build directories* (`build-gpu-[managed-]<tag>-<commit>`, ~430 MB each plus a ~60 MB source
+  worktree) on persistent storage, never purgeable scratch. Never rebuild into an existing directory. The build driver
+  (see `build-eff-4fe71c77.sh` above) checks that the source worktree is at the intended commit and refuses an existing
+  build dir. In the same shell that ran cmake and make, with the modules still loaded, it writes two files:
+  `run_env.sh` (exports that shell's `LD_LIBRARY_PATH`, plus `MPICH_GPU_SUPPORT_ENABLED=1` and `JDFTX_GPU_SYNC_MPI=1`)
+  and `BUILD_INFO` (`commit=`, `flavor=`, `built=`, `modulefile=`, `modules=`).
+- *Channels:* symlinks `<prod root>/channels/{managed,default}` pointing at build dirs. `channels/HISTORY` is
+  append-only (`<ISO time> <channel>: <old> -> <new>`) and doubles as the rollback list.
+- *`jdftx-promote <channel> <build dir>`* refuses a build that has no `run_env.sh`, shows any `not found` in
+  `ldd` run under its `run_env.sh`, or sits on scratch. An optional GPU dry run (`jdftx_gpu -n -i in`) checks a small
+  input. The script then swaps the link atomically (`ln -sfn <build> .<ch>.new && mv -T .<ch>.new <ch>`; a bare
+  `ln -sfn` unlinks before it creates, so a job starting in between would see no channel) and appends to HISTORY.
+- *Resolver* `resolve_build(gpu, log_fn) -> (exe, run_env or None, reason)`. It is called by the single function that
+  builds the launch command, so ~40 perlStuff scripts change with one 8-line edit there. The override file is read from
+  `$SLURM_SUBMIT_DIR`. A target with no `/` is a channel name; anything else is a build dir or executable path. The
+  resolver follows symlinks to a real path, caches the result per process, and logs the executable, the rule that won
+  and the `BUILD_INFO` line. Any exception means: log it and fall back to the frozen legacy variable, never crash.
+- *Launch string:* `. <build>/run_env.sh && srun <build>/jdftx_gpu`. The environment applies to that launch only.
+- *Adopt table* `<prod root>/adopt` (`<frozen legacy exe path> <channel>` per line). This is what moved jobs that were
+  already queued: each one had frozen a build path at submission. Without the table, they all stay on the old build.
+- *Job scripts:* `export JDFTx_GPU_CHANNEL=<channel>`, with no `export JDFTx_GPU=...` and no JDFTx module loads. To
+  retarget one queued job (also for its later resubmissions), run `echo <channel or build dir> > jdftx_build` in its
+  directory.
+
+**Rollout that worked:**
+1. Mock-test the resolver: override, channel variable, adopt, and a channel-name typo that must fall back.
+2. Make patched *copies* next to the originals (`*_rollout_test.py`).
+3. Run a debug job: NO3H single point at np=1. Every resolution path must reproduce the reference F to ~1e-12 Ha.
+4. Run a 4-rank check with the production SBATCH block (Pt fcc, 4x4x4 k). Expect `Run totals: 4 processes, 128
+   threads, 4 GPUs` and equal peak memory on every GPU.
+5. Get the user's OK, then rename the copies over the originals.
+6. Confirm in the first production job's log that it resolved through the adopt table.
+
+**Where Anvil differs** (cross-check with the Anvil section below):
+- The launcher is `mpirun -np N`, not `srun`. `run_env.sh` must therefore also put the matching OpenMPI on `PATH`;
+  `LD_LIBRARY_PATH` alone is not enough. The binary's RPATH covers gcc and OpenMPI but not OpenBLAS, FFTW, GSL or CUDA,
+  so `run_env.sh` (a frozen copy of the `anvil-env.sh` module loads, or a `PATH`+`LD_LIBRARY_PATH` snapshot) is what
+  makes runs independent of the submit shell. Test it from a clean shell:
+  `env -i HOME=$HOME bash -l -c '. <build>/run_env.sh && ldd <build>/jdftx_gpu | grep "not found"; which mpirun'`.
+- First find what writes the `mpirun` line in the user's Anvil jobs, and check that it is read at job *start*
+  (imported or sourced). Only then can a resolver reach jobs already in the queue. If the line sits inline in every job
+  script, queued jobs can't be moved; new scripts can source a resolver.
+- The current build is in the shared group dir `/anvil/projects/x-chm260113/Software/JDFTx/`. Ask the user where the
+  production root and the new versioned build dirs should live. Never repoint or rebuild what others run.
+- Node types: a public ACCESS listing (seen 2026-11-05, unverified) gives 21 nodes with 4x H100 80GB besides the
+  original 16 nodes with 4x A100. Check with `sinfo -o "%P %G %f %D"` and `nvidia-smi` on a node. The JDFTx CMake
+  ignores `CUDA_ARCH`/`CUDA_CODE` (they have been gone since b202b5f5, also at 52548a96); only `CUDAARCHS` matters. The
+  Perlmutter `CUDAARCHS=80` library holds sm_80 SASS plus compute_80 PTX (`cuobjdump`), so an sm_80 build would
+  probably JIT-compile on H100 rather than fail. For H100 nodes, build natively with `CUDAARCHS="80;90"` or `90`, and
+  give each node type its channel the way Perlmutter pairs `managed` with 40GB.
+- A managed-memory flavor (`-D CudaManagedMemory=yes`) needs CUDA 12.x, because the prefetch code does not compile
+  with 13.x; Anvil's `cuda/12.6.1` qualifies. Use it only for systems that don't fit in GPU memory. On Perlmutter A100s
+  it was ~1.55x slower than the plain build on 220-228-atom slabs and ~5x slower on a small molecule.
+- Untested idea for mixed GPU types: an `auto` channel that picks the flavor from the GPU the job lands on
+  (`nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` at resolve time). Jobs could then accept either
+  node type and draw from the larger pool. Perlmutter doesn't do this; its node constraint and channel are set by hand.
+
+**Using the allocation well: the method transfers, the numbers don't** (Perlmutter, 2026-11-01 to 11-03):
+- Optimize work per calendar day, (ElecMinimize iterations per job) / (queue wait + wall time), not speed per
+  iteration. 80GB + `default` was 1.55x faster per iteration, but 80GB 3-5 h jobs waited a median ~214 h, against
+  ~24 h on 40GB (all users' jobs that started 2026-11-02/03). Estimated throughput: 40GB + `managed` 5 h ~450-600
+  iterations/day, 80GB 5 h ~120. Data sources: `sacct` Submit/Start/Elapsed (use Elapsed, not End-Start, across DST)
+  and iteration counts in the `out` files.
+- Read the scheduler limits before choosing a strategy: `scontrol show config | grep -i "prior\|sched"` and
+  `sacctmgr show qos <qos> format=name,maxwall,maxjobspu,maxsubmitpu,maxjobsaccruepu`. Perlmutter `gpu_regular` has
+  `MaxJobsAccruePU=2`: only the user's 2 oldest pending jobs age, so jobs start in pairs, in submit order. A deeper queue
+  then adds nothing, and a resubmitted segment goes to the back. `PriorityWeightFairShare=0` there.
+- Each restart costs ~10-20 min (re-convergence plus the lost partial ionic step). Fewer, longer jobs should raise
+  throughput as long as the wait grows more slowly than the wall time (longer than 5 h untested on Perlmutter).
+- You can move your own pending jobs to another node type without losing queue position (NERSC):
+  `scontrol update JobId=<id> Features="gpu&a100&hbm40g"`. Write the matching `jdftx_build` file first, because moving
+  from 80GB to 40GB with `default` OOMs. On Anvil, test whether users may change `Partition=` or `Features=` this way.
+- Compare charge rates per node type. On Perlmutter, hbm40g and hbm80g both bill 128 per node-hour. Anvil's GPU
+  charging was not in the public docs on 2026-11-05; check the Anvil user guide or `mybalance`-style tools there.
+
 ### Anvil (Purdue, A100)
 
 A working GPU build lives in `/anvil/projects/x-chm260113/Software/JDFTx/`: `anvil-env.sh` (modules),
@@ -198,6 +287,9 @@ Environment:
 - Anvil has no MKL under any name. Use `-D EnableMKL=no -D BLA_VENDOR=OpenBLAS`, and don't copy MKL settings
   from Bridges.
 - The GPUs are A100s: `CUDAARCHS=80`, `-D CUDA_ARCH=compute_80 -D CUDA_CODE=sm_80` (Bridges used 70).
+  *Note (Perlmutter session, 2026-11-05, from the source, not run on Anvil):* `jdftx/CMakeLists.txt` at `52548a96` no
+  longer reads `CUDA_ARCH` or `CUDA_CODE` (they were removed in b202b5f5), so `CUDAARCHS=80` alone sets the targets.
+  Check `CMakeCache.txt` for `CMAKE_CUDA_ARCHITECTURES` and cmake.log for "Manually-specified variables were not used".
 - Login nodes have the CUDA toolkit but only a stub driver. Compiling works there; running `jdftx_gpu` doesn't.
 
 Build: `source anvil-env.sh`, then run `bash ../run-cmake-gpu.sh && make -j16` from inside `build-gpu/`.
