@@ -409,7 +409,8 @@ Verified 2026-11-05 by the Claude session on that machine; its system log is `~/
 25.11 (partition `main`, `SLURM_HINT=nomultithread` in `~/.bashrc`, cgroup core/memory limits), OpenMPI 5.0.10 with external PMIx:
 `srun` launches MPI directly (`MpiDefault=pmix`).
 - **Builds** (identical CMake caches, compared option by option): `~/software/jdftx` = upstream `b3c54e1d`;
-  `~/software/jdftx-fork` = fork `efficiency_testing` `4839c10f` (CLAUDE.md protocol set up in `src/`). Ubuntu packages: gcc 15.2,
+  `~/software/jdftx-fork` = fork `efficiency_testing` `4839c10f` (CLAUDE.md protocol set up in `src/`). **Since 2026-11-05 the fork is the
+  default** (`jdftx` on PATH, job template); the upstream build is kept for A/B (`JDFTX=~/software/jdftx/build/jdftx sbatch ...`). Ubuntu packages: gcc 15.2,
   CMake 4.2.3, OpenBLAS 0.3.32 (pthreads), FFTW 3.3.10, GSL 2.8, LibXC 5.2.3. No CompileNative (more nodes may be added).
   ```bash
   cmake -D CMAKE_BUILD_TYPE=Release -D EnableLibXC=yes -D CBLAS_LIBRARY=/usr/lib/x86_64-linux-gnu/libopenblas.so ../src/jdftx
