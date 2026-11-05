@@ -262,6 +262,7 @@ module, a sourced file, a symlink) can still change. So the choice of build move
   check list for changes to `get_exe_cmd`.
 - The current build is in the shared group dir `/anvil/projects/x-chm260113/Software/JDFTx/`. Ask the user where the
   production root and the new versioned build dirs should live. Never repoint or rebuild what others run.
+  *Answered (Anvil, 2026-11-05):* builds go in that projects Software dir; see "Where Anvil builds live" in the Anvil section.
 - Node types: partition `ai` has 21 nodes with 4x H100, besides the 16 nodes with 4x A100 in `gpu`. That comes from
   the Anvil session's `sinfo` (2026-11-05); the user's H100 access is unconfirmed (see the Anvil section). The JDFTx CMake
   ignores `CUDA_ARCH`/`CUDA_CODE` (they have been gone since b202b5f5, also at 52548a96); only `CUDAARCHS` matters. The
@@ -354,7 +355,15 @@ Running:
   `~/perlstuff/helpers/calc_helpers.py` would therefore reach jobs that are already queued. On Anvil the adopt key is the
   whole frozen string, launcher included. It also means **every `git pull` in `~/perlstuff` changes the code that all
   pending jobs will run**. The 2026-11-05 fast-forward to `0a64e90` was checked: `apply_local_protections` does nothing on
-  Anvil (`SLURM_JOB_ID` is set), and `oid["gpu"]`/`oid["ddec6"]` have defaults.
+  Anvil (`SLURM_JOB_ID` is set), and `oid["gpu"]`/`oid["ddec6"]` have defaults. Later on 2026-11-05, with the user's
+  OK, it was fast-forwarded again to `1fb5533` (resolver included). Before the pull, `jdftx_channel.py` from
+  `origin/master` was mock-run on Anvil with the real `$JDFTx_GPU` and a pending job's submit dir. There is no
+  `~/jdftx_prod`, no `JDFTX_PROD_ROOT`/`JDFTx_GPU_CHANNEL`, and no `jdftx_build` file in any pending job's dir, so the
+  launch string came out byte-identical. The resolver is now live on Anvil but changes nothing until a prod root exists.
+- **Where Anvil builds live (user, 2026-11-05):** all JDFTx builds go in the group projects Software directory,
+  `/anvil/projects/x-chm260113/Software/JDFTx/`, as new versioned dirs next to `build-gpu`/`build-gpu-cur` (never
+  rebuild into or repoint an existing one). The prod root (channels, adopt, HISTORY) is not decided yet; the proposal
+  is the same tree (e.g. `.../Software/JDFTx/prod`, set through `JDFTX_PROD_ROOT`).
 - Node types (`sinfo`, 2026-11-05): partitions `gpu`/`gpu-debug` have 16 nodes with 4x A100. Partition `ai` has 21 nodes
   with 4x H100 (feature `H100`, QoS `part-ai`). The user's only association is `chm260113-gpu` on partition `gpu`, so H100
   access is unconfirmed.
