@@ -579,6 +579,10 @@ numbers and stand as they are; below is what the same change does on Perlmutter 
   per rank (Mac `-c 1`: 0.098 s). Not investigated; the profiled time includes the MPI reductions and the per-call
   `report()` output, and these slab cells (16 × 59 × 70 bohr) need many neighbor cells for the 200 bohr cutoff. At 0.3 s
   per call this no longer matters for production.
+  - *mbook2019 (Intel i9-9880H CPU, Release -O3 build, 2026-11-05):* 0.038 s per call new vs 36.0 s old, 180-atom Pt(111) slab
+    (31 × 27 × 55 bohr), `-c 8` (section "mbook2019 CPU A/B" at the end). `jdftx/CMakeLists.txt` sets no build type, so a build
+    configured without `CMAKE_BUILD_TYPE` is -O0 on the host side. Not checked here whether the Perlmutter builds set it (see the note under the
+    Perlmutter recipe in CLAUDE.md).
 
 ### End-to-end on the production configuration
 
@@ -621,3 +625,53 @@ which the `74dd6931` production builds already have.
 `gen_vdw_input.py` and `gen_e2e_input.py`, `job_vdw.sh` (old vs new per case, same node), `job_e2e.sh`, `compare.py vdw
 default|managed` / `compare.py e2e`, outputs in `runs/`, Slurm logs in `logs/`. Jobs 60503563 (vdw, managed, 40GB),
 60503565 (vdw, default, 80GB), 60503566 (e2e, 40GB).
+
+## mbook2019 CPU A/B: `4839c10f` vs upstream `b3c54e1d` (2026-11-05)
+
+Written by the Claude session on mbook2019 (Ben's Ubuntu 26.04 CPU server: 2019 MacBook Pro 16", Intel i9-9880H, 8 cores / 16
+threads, 64 GB, CPU package power capped at 45 W, no GPU). No code was changed; this measures branch tip `4839c10f` (projection reuse
++ `a37d055f`) as pushed.
+
+### Setup
+
+- **Builds.** Old = upstream master `b3c54e1d` (`~/software/jdftx/build`), the merge base of `efficiency_testing`, so the difference is
+  exactly the branch's code commits. New = `4839c10f` (`~/software/jdftx-fork/build`). Both `-D CMAKE_BUILD_TYPE=Release -D EnableLibXC=yes
+  -D CBLAS_LIBRARY=/usr/lib/x86_64-linux-gnu/libopenblas.so`; CMake caches identical (33 options compared); gcc 15.2, OpenBLAS 0.3.32,
+  no profiling.
+- **Runs.** Slurm `--hint=nomultithread`, `OPENBLAS_NUM_THREADS=1`, nothing else running. Each case ran old and new back to back,
+  2 repetitions with the order alternated (old→new, then new→old), each in a fresh directory. Wall time comes from the `Duration` line, s/iter from
+  the first to the last `t[s]` of the ElecMinimize lines, and D3 per call from the `t[s]` of IonicMinimize iterations 0 and 1 (calls 4-13).
+- **Cases** (`~/software/jdftx-fork/bench/inputs/`; GBRV ultrasoft, 18 projector functions per atom for both Si and Pt):
+  - B1 `si-emin`: bulk Si, PBE, `kpoint-folding 8 8 8` (29 states), 4 bands, 36 projectors; default electronic-minimize; `-n 4 -c 2`.
+  - B2 `pt12-emin`: Pt(111) 2x2x3 slab (12 atoms; 2x2 supercell of `test/metalSurface/common.in`, vacuum, no fluid), PBE, 4x4x1 k
+    (4 states), Fermi 0.01, 192 electrons, 144 bands, 216 projectors; `-n 4 -c 2`.
+  - B3 `pt180-d3-ljoverride`: 180-atom Pt(111) 6x6x5 slab (ASE `fcc111`, cell 31.4 x 27.2 x 54.9 bohr), `van-der-waals D3`, using the
+    CLAUDE.md lj-override method (`lj-override 105.83544`, `elec-cutoff 5`, `ionic-minimize nIterations 1`): 13 D3 calls; `-n 1 -c 8`.
+
+### Results
+
+| case | metric | old r1 / r2 | new r1 / r2 | new / old |
+|---|---|---|---|---|
+| B1 Si | s/iter (13 iters in all runs) | 0.1525 / 0.1492 | 0.1125 / 0.1125 | 0.746 |
+| | wall | 3.69 / 3.59 s | 3.16 / 3.13 s | 0.864 |
+| B2 Pt12 | s/iter (22 iters in all runs) | 2.933 / 2.891 | 2.546 / 2.500 | 0.866 |
+| | wall | 103.0 / 101.4 s | 94.2 / 92.4 s | 0.913 |
+| B3 D3 | s per D3 call | 36.08 / 35.90 | 0.040 / 0.036 | ~1/950 |
+| | wall | 475.9 / 471.6 s | 3.98 / 4.09 s | 0.0085 |
+
+- Energies: B1 Etot −7.942856066635 Ha in all 4 runs (spread 8e-15), B2 F −1067.3710081043 Ha (spread 5e-11), B3 −4.038152874989 Ha
+  (spread 3e-13). Iteration counts are the same, and every ElecMinimize run converged.
+- Test suite on `4839c10f`: ctest 11/11, 47/47 checks, both threads-only (`-n 1 -c 8`) and MPI (`JDFTX_LAUNCH="srun -n %d -c 2"`).
+
+### Conclusions (mbook2019 CPU)
+
+- Projection reuse also pays off on this CPU: −25% per ElecMinimize iteration for bulk Si and −13% for the 12-atom Pt slab. That is less than
+  the 27% for the 218-atom slab on Perlmutter GPUs, but the systems are much smaller and the hardware differs, so the numbers are not directly comparable.
+- D3: 36 s → 0.038 s per call at `-c 8` for 180 atoms. That is the same order as the Mac numbers in `a37d055f`'s commit message (16.8 s →
+  0.017 s, 250 atoms); both are Release builds.
+
+### Reproducing (mbook2019)
+
+`~/software/jdftx-fork/bench/`: `inputs/` (the three `.in` files), `bench.sh <case> <up|fork> <rep>` (one Slurm run; layout via
+`sbatch -n/-c`), `compare.py` (table of wall time, iterations, s/iter, energies), `runs/<case>_<build>_r<rep>/`, `logs/`.
+Slurm jobs 48-59; test suite jobs 46 (threads-only) and 47 (MPI).
