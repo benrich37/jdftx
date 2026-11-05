@@ -390,6 +390,13 @@ Running:
     **Only 4 of a user's pending jobs accrue age at a time.** That was observed through `AccrueTime`: the user's 4 oldest
     had it set and the other 62 showed N/A with age 0. The limit doesn't appear in the `sacctmgr` qos/assoc output. As on
     Perlmutter, queueing deeper than a few jobs gains no priority.
+    *Correction (same session): the limit is per ACCOUNT, not per user.* `scontrol show assoc_mgr flags=qos qos=gpu`
+    shows `MaxJobsAccruePA=4` on job QOS `gpu`, which `gpu-debug` jobs also run under. So all chm260113-gpu members
+    (x-sgerits is also in the account) share 4 accrue slots, and pending `gpu` jobs keep a debug job from accruing.
+  - **2026-11-05 ~13:50: all 66 of the user's pending jobs were put on user hold** (`scontrol hold`, with the user's OK)
+    so the gpu-debug tests of `build-gpu-eff-4fe71c77` have free accrue slots and backfill. Verified: `JobHeldUser`,
+    priority 0, AccrueTime reset, account accrue count `4(0)`, submit times unchanged. **Release them when testing ends:**
+    `scontrol release <ids>`, with the ids in `queue_logs/hold_2026-11-05.log` (also in `pending_2026-11-05.tsv`).
   - `bf_max_job_assoc=50`: backfill tests at most 50 of a user's jobs, in priority order. With 50 or more of the user's
     own older jobs pending, a new debug job is never tested. Evidence: the earlier debug jobs, with no older jobs of
     the user pending, waited 0.8-26 h. Debug job 21591351 waited 13.7 days with 158 older jobs pending; that count fell
