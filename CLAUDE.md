@@ -83,6 +83,12 @@ CC=cc CXX=CC CUDAARCHS=80 cmake \
     ../jdftx-git/jdftx
 make -j16
 ```
+*Note (mbook2019, 2026-11-05; not verified on Perlmutter):* `jdftx/CMakeLists.txt` sets no default build type and no `-O` level
+(checked on `b3c54e1d` and `4839c10f`), and the recipe above passes no `CMAKE_BUILD_TYPE`. On mbook2019 (gcc 15.2, CMake 4.2.3) a
+plain `cmake` gives `CXX_FLAGS = -Wall -Wno-unused-result -ftemplate-depth-512`, i.e. gcc's default -O0; `-D CMAKE_BUILD_TYPE=Release`
+adds -O3. Check `grep CMAKE_BUILD_TYPE <build>/CMakeCache.txt` for the Perlmutter builds: if it is empty, host-side code (e.g.
+`VanDerWaalsD3`) is unoptimised, which may be related to the unexplained ~10x D3 per-call gap vs the Mac in `efficiency_notes.md`.
+
 Perlmutter production builds since 2026-10-29 are instead compiled with the user's own module `~/modules/jdftx/gpu.lua`
 through a self-contained driver, `~/jdftx_compile_test/ben/build-eff-4fe71c77.sh` (copy and edit it for a new commit).
 It writes `run_env.sh` (the build's library environment) and `BUILD_INFO` into the build directory; both are required
@@ -219,6 +225,43 @@ Running:
 - This build predates `544d0e78`, so it ignores `JDFTX_GPU_SYNC_MPI`. It is also built without `CudaAwareMPI`,
   which the race described above requires. Pull `544d0e78` or later before rebuilding with `CudaAwareMPI=yes`.
 
+### mbook2019 (Ben's home CPU server: 2019 MacBook Pro 16", Ubuntu 26.04)
+
+Verified 2026-11-05 by the Claude session on that machine; its system log is `~/SERVER_NOTES.md` there. Intel i9-9880H (8 cores /
+16 threads, AVX2), 64 GB, no GPU. CPU package power capped at 45 W (sustained ~3.0 GHz, no thermal throttling). Single-node Slurm
+25.11 (partition `main`, `SLURM_HINT=nomultithread` in `~/.bashrc`, cgroup core/memory limits), OpenMPI 5.0.10 with external PMIx:
+`srun` launches MPI directly (`MpiDefault=pmix`).
+- **Builds** (identical CMake caches, compared option by option): `~/software/jdftx` = upstream `b3c54e1d`;
+  `~/software/jdftx-fork` = fork `efficiency_testing` `4839c10f` (CLAUDE.md protocol set up in `src/`). Ubuntu packages: gcc 15.2,
+  CMake 4.2.3, OpenBLAS 0.3.32 (pthreads), FFTW 3.3.10, GSL 2.8, LibXC 5.2.3. No CompileNative (more nodes may be added).
+  ```bash
+  cmake -D CMAKE_BUILD_TYPE=Release -D EnableLibXC=yes -D CBLAS_LIBRARY=/usr/lib/x86_64-linux-gnu/libopenblas.so ../src/jdftx
+  srun -n 1 -c 16 --hint=multithread make -j16      # 72 s
+  ```
+- **Two CMake pitfalls seen here:** (1) no build type means no `-O` (see the note under the Perlmutter recipe); (2) FindCBLAS picks
+  `libgslcblas` (GSL's reference CBLAS) ahead of OpenBLAS. `CBLAS_LIBRARY` fixes it; checked with `LD_BIND_NOW=1 LD_DEBUG=bindings`
+  that `cblas_zgemm` then binds to libopenblas.
+- Binaries link with `RUNPATH` (Ubuntu's default), so an `LD_LIBRARY_PATH` would override the build's own `libjdftx.so`. None is set here.
+- **Running:** always `OPENBLAS_NUM_THREADS=1`. JDFTx threads itself; with OpenBLAS threads = `-c`, one process ran 22 threads on 8 cores
+  and was 25-36% slower. **MPI over states beats threads here** (bulk Si, PBE, GBRV, 8x8x8 k = 29 states, electronic-SCF, all 8 cores:
+  1x8 23.1 s, 2x4 6.8 s, 4x2 4.5 s, 8x1 3.6 s). Job template `~/slurm-tests/jdftx-job-template.sh` (default `-n 4 -c 2`; `-n 1 -c 8`
+  for Gamma-only systems and molecules).
+- **Tests:** ctest 11/11 (47 checks) for both builds, threads-only (`-n 1 -c 8`) and MPI (`JDFTX_LAUNCH="srun -n %d -c 2"`).
+- **`efficiency_testing` A/B** (4839c10f vs b3c54e1d, back to back, alternating order, 2 repetitions, otherwise idle machine; inputs and
+  scripts in `~/software/jdftx-fork/bench/`; details in `efficiency_notes.md`, "mbook2019 CPU A/B"):
+
+  | case | layout n×c | upstream | fork | change |
+  |---|---|---|---|---|
+  | bulk Si, GBRV, 29 states, electronic-minimize (13 iters both) | 4×2 | 0.151 s/iter | 0.113 s/iter | −25% per iter (−14% wall) |
+  | Pt(111) 2x2x3, 12 atoms, 144 bands, 216 projectors, 4 states, Fermi 0.01 (22 iters both) | 4×2 | 2.91 s/iter | 2.52 s/iter | −13% per iter (−9% wall) |
+  | D3, 180-atom Pt(111) 6x6x5 slab, lj-override 105.83544 + ionic-minimize 1 (13 D3 calls) | 1×8 | 36.0 s/call | 0.038 s/call | ~950x |
+
+  Energies agree to 8e-15 Ha (Si), 5e-11 Ha (Pt) and 3e-13 Ha (D3), with the same iteration counts. These systems are small and the
+  hardware differs, so the per-iteration gains are not directly comparable with the 27% for the 218-atom slab on Perlmutter GPUs.
+- **Python:** conda env `dft` (Miniforge, conda-forge, no compilers/MPI in the env) with `benrich37/pymatgen-core@misc_fixes` installed
+  editable from `~/software/pymatgen-core`. 2026-11-05: its `tests/io/jdftx` gave 390 passed and 1 tolerance-only failure (exact-0 compare at
+  `atol=0`, see `~/envs/pymatgen-jdftx-issues.md` there).
+
 ## Tests
 
 Regression tests are ctest-driven bash harnesses in `jdftx/test/` (see `jdftx/test/README`):
@@ -324,6 +367,8 @@ launch overhead, skipping the XC MPI split on GPU, batched FFTs, Cholesky step i
 - Profile with `-D EnableProfiling=yes` (per-function `PROFILER:` lines at the end of the output). Compare
   builds side by side at equal thread counts; iteration counts, not wall time, are the fair metric when runs
   share the CPU.
+- **CPU A/B on mbook2019 (Intel i9, 2026-11-05):** −25% / −13% per ElecMinimize iteration (bulk Si / 12-atom Pt slab), D3 ~950x faster
+  per call, identical energies and iteration counts. Table in "mbook2019" under Cluster builds; details in `efficiency_notes.md`.
 
 #### GPU results (Perlmutter, 2026-10-24/25)
 
