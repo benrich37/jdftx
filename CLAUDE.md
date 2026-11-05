@@ -147,10 +147,13 @@ the `jdftx_build` override file) are in the research repo's root `CLAUDE.md` (`~
 Perlmutter: JDFTx build channels"); this section is the build side.
 - A production job no longer uses the executable in `$JDFTx_GPU` at `sbatch` time. The build is chosen when the job
   starts by `~/perlStuff/perlStuff/helpers/jdftx_channel.py`, called from `helpers/calc_helpers.py::get_exe_cmd` (opt4.py
-  and ~40 other perlStuff scripts; `opt6_self_contained.py` has its own launcher and is NOT covered). The hook exists only
-  in that Perlmutter working copy (branch master, **uncommitted**: `calc_helpers.py` modified, `jdftx_channel.py`
-  untracked); a laptop clone of perlStuff does not have it. Never "fix" `calc_helpers.py` from another machine or
-  `git checkout`/`git pull` on Perlmutter in a way that discards it.
+  and ~40 other perlStuff scripts; `opt6_self_contained.py` has its own launcher and is NOT covered). Committed
+  2026-11-05 with the user's permission as perlStuff `3121f8b`, then merged with the user's 2026-10-21 local-run commits
+  (`6e4a92b`, `0a64e90`) as `f15b6fd` and pushed to `origin/master` (via `git@github.com:benrich37/perlStuff.git`;
+  the configured https remote has no credentials on Perlmutter). The Perlmutter working copy deliberately stays at
+  `3121f8b` (3 behind origin): `git pull --ff-only` there is a clean fast-forward that keeps the hook, but it puts the
+  10-21 changes live for every job that starts afterwards, so get the user's OK first. Every clone that pulls master
+  (laptop, Anvil) now gets the resolver too; without `~/jdftx_prod` it falls back to `$JDFTx_GPU`/`$JDFTx` unchanged.
 - Resolution order, first hit wins: (1) `<job submit dir>/jdftx_build`, first non-comment word = channel name or build
   directory; (2) `$JDFTx_GPU_CHANNEL` from `psubmit.sh`; (3) `~/jdftx_prod/adopt`, mapping a frozen legacy `$JDFTx_GPU`
   path to a channel (`build-gpu-managed-54315e95 -> managed`, `build-gpu-54315e95 -> default`,
@@ -184,9 +187,10 @@ Perlmutter: JDFTx build channels"); this section is the build side.
 
 ### Porting the build channels to another cluster, and choosing node types (for the Anvil agent)
 
-Written by the Perlmutter session, 2026-11-05. Everything below was built and measured on Perlmutter only. Its files
-can't be reached from other machines: the perlStuff hook is uncommitted, and `~/jdftx_prod` and the research-repo
-`CLAUDE.md` are not on Anvil. So this is a spec to reimplement, not files to copy. Ask the user before you patch the
+Written by the Perlmutter session, 2026-11-05. Everything below was built and measured on Perlmutter only. The
+resolver code is on perlStuff `origin/master` (`f15b6fd`; see the next paragraph and "Where Anvil differs"), but
+`~/jdftx_prod`, the promote script, the build driver and the research-repo `CLAUDE.md` are not on Anvil. So those
+parts are a spec to reimplement, not files to copy. Ask the user before you patch the
 live job-launch code (every queued job picks the change up when it starts), before you write into a shared group
 directory, and before you submit any job.
 
@@ -235,13 +239,28 @@ module, a sourced file, a symlink) can still change. So the choice of build move
   so `run_env.sh` (a frozen copy of the `anvil-env.sh` module loads, or a `PATH`+`LD_LIBRARY_PATH` snapshot) is what
   makes runs independent of the submit shell. Test it from a clean shell:
   `env -i HOME=$HOME bash -l -c '. <build>/run_env.sh && ldd <build>/jdftx_gpu | grep "not found"; which mpirun'`.
-- First find what writes the `mpirun` line in the user's Anvil jobs, and check that it is read at job *start*
-  (imported or sourced). Only then can a resolver reach jobs already in the queue. If the line sits inline in every job
-  script, queued jobs can't be moved; new scripts can source a resolver.
+- The launch path on Anvil is the same perlStuff `get_exe_cmd` (Anvil session's findings in the Anvil section). Since
+  2026-11-05 the resolver is on perlStuff `origin/master` (`f15b6fd`), so **the next `git pull` in Anvil's `~/perlstuff`
+  puts it live for every pending Anvil job**. Mock-tested on Perlmutter (2026-11-05, merged code, job Python, Anvil's
+  frozen string `mpirun -np 2 .../build-gpu/jdftx_gpu`, `use_srun=False`). With no `~/jdftx_prod` on Anvil, the launch
+  string comes out byte-identical to before, so the pull is inert for jobs. The log gains two lines: `JDFTx build: ...
+  [$JDFTx_GPU as frozen at submission]` and `No run_env.sh for this build`. To use channels on Anvil, the resolver needs
+  two changes:
+  (a) **The adopt table can't match Anvil's frozen string.** The parser keeps only lines with exactly two
+  whitespace-separated fields and compares build dirs. The full string with `mpirun` has too many fields, and a
+  path-only key is compared against the whole frozen string, launcher included. Both fail silently, with no `WARNING`.
+  Fix: match on the string's last token (the executable).
+  (b) **A resolved channel loses the launcher.** With `use_srun=False`, `get_exe_cmd` returns `. <build>/run_env.sh &&
+  <build>/jdftx_gpu`, which has no `mpirun`. Fix: keep the frozen string's prefix before the executable (`mpirun -np 2`),
+  or build the launcher from `$SLURM_NTASKS`.
+  Both fixes are untested. `calc_helpers.py` and `jdftx_channel.py` are shared with Perlmutter production, so any change
+  there must leave the `srun` path and the two-field adopt lines working exactly as they do now. Test both machines'
+  cases (the four in "Rollout that worked", plus the Anvil string) before pushing, and ask the user before pulling it
+  on either cluster.
 - The current build is in the shared group dir `/anvil/projects/x-chm260113/Software/JDFTx/`. Ask the user where the
   production root and the new versioned build dirs should live. Never repoint or rebuild what others run.
-- Node types: a public ACCESS listing (seen 2026-11-05, unverified) gives 21 nodes with 4x H100 80GB besides the
-  original 16 nodes with 4x A100. Check with `sinfo -o "%P %G %f %D"` and `nvidia-smi` on a node. The JDFTx CMake
+- Node types: partition `ai` has 21 nodes with 4x H100, besides the 16 nodes with 4x A100 in `gpu`. That comes from
+  the Anvil session's `sinfo` (2026-11-05); the user's H100 access is unconfirmed (see the Anvil section). The JDFTx CMake
   ignores `CUDA_ARCH`/`CUDA_CODE` (they have been gone since b202b5f5, also at 52548a96); only `CUDAARCHS` matters. The
   Perlmutter `CUDAARCHS=80` library holds sm_80 SASS plus compute_80 PTX (`cuobjdump`), so an sm_80 build would
   probably JIT-compile on H100 rather than fail. For H100 nodes, build natively with `CUDAARCHS="80;90"` or `90`, and
