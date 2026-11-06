@@ -457,7 +457,8 @@ Verified 2026-11-05 by the Claude session on that machine; its system log is `~/
   - *pyjdftx log bug (all machines; found here 2026-11-06, source not changed):* `initialize(comm, commAll, log, False)` opens `log`
     with "w" on **every** rank, so a rank that gets there late truncates what rank 0 already wrote (NUL bytes at the top of the log;
     the energies are unaffected). The CLI is safe because `-o` opens with "a". Workaround: pass `os.devnull` on ranks other than 0.
-    Fix: open the file only on the head rank in `_pyjdftx.cpp::initialize`.
+    Fix: open the file only on the head rank in `_pyjdftx.cpp::initialize`. **User (2026-11-06): known bug, not to be fixed for now.**
+    Use the workaround in every multi-rank pyjdftx script, and don't patch `_pyjdftx.cpp`.
   - *Unexplained, here only:* at 1x8 (one process, 8 threads) pyjdftx ran 18 s against the CLI's 23 s on the same input (3 reps each,
     0.71 vs 0.96 s per SCF cycle, 5x fewer minor page faults). At 4x2 the two are the same. Ruled out: library binding (LD_DEBUG), the
     env's libstdc++, the MPI thread level and the glibc mmap threshold. On this 2-atom cell 1x2 (9.4 s) is also faster than 1x8, so
