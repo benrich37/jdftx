@@ -144,14 +144,21 @@ double VanDerWaalsD3::getScaleFactor(string exCorrName, double scaleOverride) co
 }
 
 
+//! Return x^m (m >= 1), much faster than std::pow in the pair potentials below
+template<int m> double intPow(double x)
+{	double result = x;
+	for(int i=1; i<m; i++) result *= x;
+	return result;
+}
+
 //! Return r^-n pair-potential energy and set its derivative E_r.
 //! The potential is damped at length scale R0 and exponent alpha_n.
 template<int n, int alpha_n> double vdWpotential(double invr, double R0, double& E_r)
 {	//Main r^-n potential (and r derivative):
-	double pot = std::pow(invr, n); 
+	double pot = intPow<n>(invr);
 	double pot_r = (-n) * pot * invr;
 	//Exponent in denominator of damping factor (and r derivative):
-	double damp_term = 6 * std::pow(R0 * invr, alpha_n);
+	double damp_term = 6 * intPow<alpha_n>(R0 * invr);
 	double damp_term_r = (-alpha_n) * damp_term * invr;
 	//Overall damping factor (and r derivative):
 	double damp = 1./(1. + damp_term);
@@ -165,10 +172,10 @@ template<int n, int alpha_n> double vdWpotential(double invr, double R0, double&
 template<int n> double vdWpotentialBJ(double r, double R0, double a1, double a2, double& E_r)
 {	//Main r^-n potential (and r derivative):
 	double subcdamp = a1*R0 + a2; // eqn 6 of Grimme 2011
-	double cdamp = pow(subcdamp, n); // raised to n (constant wrt r)
-	double rn = pow(r, n);
+	double cdamp = intPow<n>(subcdamp); // raised to n (constant wrt r)
+	double rn = intPow<n>(r);
 	double E = 1 / (rn + cdamp);
-	E_r = -n * pow(r, n-1) * E * E;
+	E_r = -n * intPow<n-1>(r) * E * E;
 	return E;
 }
 
