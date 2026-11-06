@@ -192,9 +192,12 @@ double VanDerWaalsD3::energyAndGrad(std::vector<Atom>& atoms, const double scale
 	std::vector<vector3<>> forces(atoms.size()); //VDW forces per atom
 	matrix3<> E_RRT; //Stress * volume (updated only if E_RRTptr is non-null)
 	std::vector<double> diagC6(atoms.size()); //diagonal C6 for reporting
-	for(int c1=0; c1<int(atoms.size()); c1++)
+	std::mutex lock;
+	auto pairsOfAtom1 = [&, &E6tot=E6, &E8tot=E8, &E_CNtot=E_CN, &forcesTot=forces, &E_RRTtot=E_RRT](int c1) //run threaded over c1 below
 	{	const D3::AtomParams& ap1 = atomParams[atoms[c1].sp];
 		matrix L1prime, L1 = ap1.getL(CN[c1], L1prime); //C6 interpolation weights for atom 1
+		double E6 = 0., E8 = 0.; std::vector<double> E_CN(atoms.size()); //contributions of the pairs of atom c1,
+		std::vector<vector3<>> forces(atoms.size()); matrix3<> E_RRT;      //added to the totals (E6tot etc.) at the end
 
 		for(int c2=0; c2<int(atoms.size()); c2++)
 		{	const D3::AtomParams& ap2 = atomParams[atoms[c2].sp];
@@ -248,7 +251,14 @@ double VanDerWaalsD3::energyAndGrad(std::vector<Atom>& atoms, const double scale
 			E_CN[c1] += E12_C6_tot * trace(transpose(L1prime) * pp.C6 * L2).real();
 			E_CN[c2] += E12_C6_tot * trace(transpose(L1) * pp.C6 * L2prime).real();
 		}
-	}
+		std::lock_guard<std::mutex> guard(lock);
+		E6tot += E6; E8tot += E8; E_RRTtot += E_RRT;
+		for(size_t c=0; c<atoms.size(); c++)
+		{	E_CNtot[c] += E_CN[c];
+			forcesTot[c] += forces[c];
+		}
+	};
+	if(atoms.size()) threadedLoop(&pairsOfAtom1, atoms.size());
 	report(diagC6, "diagonal-C6", atoms, " %.2f");
 	mpiWorld->allReduce(E6, MPIUtil::ReduceSum);
 	mpiWorld->allReduce(E8, MPIUtil::ReduceSum);
@@ -278,8 +288,10 @@ void VanDerWaalsD3::computeCN(const std::vector<Atom>& atoms, std::vector<double
 	vector3<int> S; size_t iStart, iStop; //Number of unit cells in supercell to reach rCut and MPI division
 	setNeighborSampling(rCut, S, iStart, iStop);
 	CN.assign(atoms.size(), 0.);
-	for(int c1=0; c1<int(atoms.size()); c1++)
+	std::mutex lock;
+	auto pairsOfAtom1 = [&, &CNtot=CN](int c1) //run threaded over c1 below
 	{	const D3::AtomParams& ap1 = atomParams[atoms[c1].sp];
+		std::vector<double> CN(atoms.size()); //contributions of the pairs of atom c1, added to CNtot at the end
 		for(int c2=0; c2<int(atoms.size()); c2++)
 		{	const D3::AtomParams& ap2 = atomParams[atoms[c2].sp];
 			double k2RcovSum = ap1.k2Rcov + ap2.k2Rcov;
@@ -296,7 +308,11 @@ void VanDerWaalsD3::computeCN(const std::vector<Atom>& atoms, std::vector<double
 				}
 			)
 		}
-	}
+		std::lock_guard<std::mutex> guard(lock);
+		for(size_t c=0; c<atoms.size(); c++)
+			CNtot[c] += CN[c];
+	};
+	if(atoms.size()) threadedLoop(&pairsOfAtom1, atoms.size());
 	mpiWorld->allReduceData(CN, MPIUtil::ReduceSum);
 	report(CN, "coordination-number", atoms);
 }
@@ -310,8 +326,11 @@ void VanDerWaalsD3::propagateCNgradient(const std::vector<Atom>& atoms, const st
 	vector3<int> S; size_t iStart, iStop;
 	setNeighborSampling(rCut, S, iStart, iStop);
 	//Propagate gradients corresponding to computeCN()
-	for(int c1=0; c1<int(atoms.size()); c1++)
+	std::mutex lock;
+	auto pairsOfAtom1 = [&, &forcesTot=forces, E_RRTtot=E_RRT](int c1) //run threaded over c1 below
 	{	const D3::AtomParams& ap1 = atomParams[atoms[c1].sp];
+		std::vector<vector3<>> forces(atoms.size()); matrix3<> E_RRTsum; //contributions of the pairs of atom c1,
+		matrix3<>* E_RRT = E_RRTtot ? &E_RRTsum : NULL;                  //added to the totals (forcesTot, E_RRTtot) at the end
 		for(int c2=0; c2<int(atoms.size()); c2++)
 		{	const D3::AtomParams& ap2 = atomParams[atoms[c2].sp];
 			double k2RcovSum = ap1.k2Rcov + ap2.k2Rcov;
@@ -338,7 +357,12 @@ void VanDerWaalsD3::propagateCNgradient(const std::vector<Atom>& atoms, const st
 				}
 			)
 		}
-	}
+		std::lock_guard<std::mutex> guard(lock);
+		for(size_t c=0; c<atoms.size(); c++)
+			forcesTot[c] += forces[c];
+		if(E_RRTtot) *E_RRTtot += E_RRTsum;
+	};
+	if(atoms.size()) threadedLoop(&pairsOfAtom1, atoms.size());
 }
 
 
