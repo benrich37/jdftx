@@ -535,6 +535,8 @@ These numbers come from the Patty production runs (`build_eff`, runner logs in
 - `summarize.py` prints the tables from `out_<build>_c<n>` and `time_<build>_c<n>`.
 - `bench_short.in` and `run_threads.sh <build> <threads...>` (12 vacuum + 12 solvated iterations) are a ready
   thread-scaling test, not yet run.
+  *Note (mbook2019, 2026-11-06):* a similar thread-scaling test was run on mbook2019's i9; see "mbook2019: thread
+  scaling on a solvated molecule" at the end. The M5 Pro test above is still open.
 
 ## DFT-D3 speedup `a37d055f`: Perlmutter GPU results (2026-10-29)
 
@@ -675,3 +677,53 @@ threads, 64 GB, CPU package power capped at 45 W, no GPU). No code was changed; 
 `~/software/jdftx-fork/bench/`: `inputs/` (the three `.in` files), `bench.sh <case> <up|fork> <rep>` (one Slurm run; layout via
 `sbatch -n/-c`), `compare.py` (table of wall time, iterations, s/iter, energies), `runs/<case>_<build>_r<rep>/`, `logs/`.
 Slurm jobs 48-59; test suite jobs 46 (threads-only) and 47 (MPI).
+
+## mbook2019: thread scaling on a solvated molecule (2026-11-06)
+
+Run on mbook2019 (Ben's home CPU server: i9-9880H, 8 cores, 45 W package cap, dual-channel DDR4, 64 GB, Ubuntu 26.04) with
+the fork build `4839c10f` (Release, OpenBLAS with `OPENBLAS_NUM_THREADS=1`). Nothing here was measured on the M5 Pro.
+
+### Setup
+
+- **System:** glycinate (charge -1) set up like the Patty single point above. GBRV 20/100, PBE-D3BJ, z-spin, Fermi 0.001,
+  nBands 24, `Isolated` 20 Å cube, LinearPCM CANDLE with 1 M K+/F-, `knormThreshold 1e-13`. The geometry is approximate
+  and unrelaxed (built from ASE's acetic acid), which is fine for timing. The fft boxes are 180³ (wavefunctions) and 360³
+  (fluid, embedded).
+- **Method:** a converged gas-phase state is computed once. Each timed run restarts from it (no LCAO, no vacuum pre-solve)
+  and does a fixed 4 SCF cycles, either in gas phase or solvated. s/cycle comes from JDFTx's own `t[s]` stamps. Runs went
+  one at a time on an otherwise idle machine, with `-n 1 -c C --hint=nomultithread` under Slurm. Every run gives the same
+  F (gas -55.947269400, solvated -56.042799168 Ha) at every thread count, through both the CLI and pyjdftx.
+- Each solvated cycle runs 2 LinearPCM solves of 21-35 CG iterations each (14-34 per call on the M5 Pro above).
+
+### Results
+
+| threads | gas s/cycle | speedup | solvated s/cycle | speedup | throttled (solvated) |
+|---|---|---|---|---|---|
+| 1 | 63.1 | 1.00 | 587 | 1.00 | 0.7% |
+| 2 | 42.4 | 1.49 | 389 | 1.51 | 1.6% |
+| 4 | 30.5 | 2.07 | 278 | 2.11 | 5.8% |
+| 8 | 24.3 (4 runs, ±0.5%) | 2.60 | 228 (2 runs) | 2.57 | 17-19% |
+| 2 jobs x 4, at once | | | 370 each | **1.24x the throughput of 1 x 8** | 3.7% |
+
+- **Threads beyond 2-4 add little for molecules here.** 8 threads are 2.6x one thread (33% parallel efficiency). Some of the
+  shortfall is clock speed: under the 45 W cap one busy core runs at ~4.2 GHz, eight at ~2.9 GHz, and at 8 threads the
+  package was throttled 17-19% of the time (`package_throttle_total_time_ms`, peaks at 100 °C). The rest looks like memory
+  bandwidth: the solvated cycle is 9.4x a gas cycle here, against 3.5x on the M5 Pro, and is ~11x slower than the M5 Pro
+  per iteration (gas ~4x). That fits fluid solves on 360³ grids being bandwidth-bound on dual-channel DDR4.
+- **For throughput, run molecules side by side.** Two `-c 4` jobs at once each slowed to 370 s/cycle, 1.33x their solo time,
+  but together they did 1.24x the work of one `-c 8` job. Memory caps this: 12.6 GB peak RSS per solvated job and 3.8 GB per
+  gas-phase job, on a 58 GB Slurm node. Four `-c 2` solvated jobs (~50 GB) and more gas-phase jobs were not tested.
+- **pyjdftx = CLI on molecules:** gas 24.3 vs 24.3 s/cycle, solvated 227.3 vs 228.8, same page-fault counts. The 1x8 speed
+  difference on bulk Si (CLAUDE.md, mbook2019 section) does not appear on real molecule workloads.
+- **Page-fault overhead (open lead):** about 160 M minor page faults per solvated SCF cycle (~10.9 M per gas cycle) at every
+  thread count, i.e. large arrays are faulted in again and again. Kernel time is 15-20% of all CPU time solvated and 9-10%
+  gas. The size of a fault is set by the 4 KB page size (transparent huge pages = `madvise` here). Untested ideas:
+  `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` (glibc 2.43 madvises THP for malloc'd memory: a per-process setting, no system
+  change), or a CPU memory pool for ScalarField/ColumnBundle temporaries in JDFTx.
+
+### Reproducing (mbook2019)
+
+`~/software/jdftx-fork/bench/mol/` on mbook2019: `gen_glycinate.py`, `inputs/` (`gly-gas-state.in`, `gly-gas.in`, `gly-solv.in`),
+`run_mol.sh <cli|py> <tag>` (records `/usr/bin/time` resources), `summarize.py`, `thermal-log.sh` + `thermal_per_run.py`
+(throttling per run), `runs/`, `logs/`.
+
