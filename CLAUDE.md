@@ -446,6 +446,22 @@ Verified 2026-11-05 by the Claude session on that machine; its system log is `~/
 - **Python:** conda env `dft` (Miniforge, conda-forge, no compilers/MPI in the env) with `benrich37/pymatgen-core@misc_fixes` installed
   editable from `~/software/pymatgen-core`. 2026-11-05: its `tests/io/jdftx` gave 390 passed and 1 tolerance-only failure (exact-0 compare at
   `atol=0`, see `~/envs/pymatgen-jdftx-issues.md` there).
+- **pyjdftx** (`jdftx/opt/pyjdftx`, built 2026-11-06 against the fork build `4839c10f`; script `~/envs/build-pyjdftx.sh` there, 7 s).
+  No env changes beyond pure-Python build tools: conda-forge `scikit-build-core` + `pybind11`; `mpi4py` pip-built from source against the
+  system OpenMPI (`pip install --no-binary mpi4py mpi4py`; conda-forge's mpi4py would pull conda's own OpenMPI). Then
+  `pip install --no-build-isolation -C cmake.define.CMAKE_CXX_COMPILER=/usr/bin/mpicxx -C cmake.define.JDFTX_LIBRARY=<build>/libjdftx.so
+  -C cmake.define.CMAKE_INSTALL_RPATH='$ORIGIN/../../..;<build>' <src>/jdftx/opt/pyjdftx` from a shell with the env active and the
+  system cmake. The `$ORIGIN/../../..` entry (the env's lib) matters: without it, `import pyjdftx` before numpy loads the OS libstdc++
+  (older than conda's), so later conda C++ modules get the older one. Re-run the script after every rebuild of the JDFTx build.
+  Results (Si, 29 states, electronic-SCF): `pyjdftx.run(input)` = CLI to 2e-14 Ha at 1x8 and 4x2; ASE calculator = CLI to 2e-13 Ha.
+  - *pyjdftx log bug (all machines; found here 2026-11-06, source not changed):* `initialize(comm, commAll, log, False)` opens `log`
+    with "w" on **every** rank, so a rank that gets there late truncates what rank 0 already wrote (NUL bytes at the top of the log;
+    the energies are unaffected). The CLI is safe because `-o` opens with "a". Workaround: pass `os.devnull` on ranks other than 0.
+    Fix: open the file only on the head rank in `_pyjdftx.cpp::initialize`.
+  - *Unexplained, here only:* at 1x8 (one process, 8 threads) pyjdftx ran 18 s against the CLI's 23 s on the same input (3 reps each,
+    0.71 vs 0.96 s per SCF cycle, 5x fewer minor page faults). At 4x2 the two are the same. Ruled out: library binding (LD_DEBUG), the
+    env's libstdc++, the MPI thread level and the glibc mmap threshold. On this 2-atom cell 1x2 (9.4 s) is also faster than 1x8, so
+    threading overhead dominates tiny systems.
 
 ## Tests
 
