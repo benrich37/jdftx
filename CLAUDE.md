@@ -430,7 +430,8 @@ Verified 2026-11-05 by the Claude session on that machine; its system log is `~/
 - **Running:** always `OPENBLAS_NUM_THREADS=1`. JDFTx threads itself; with OpenBLAS threads = `-c`, one process ran 22 threads on 8 cores
   and was 25-36% slower. **MPI over states beats threads here** (bulk Si, PBE, GBRV, 8x8x8 k = 29 states, electronic-SCF, all 8 cores:
   1x8 23.1 s, 2x4 6.8 s, 4x2 4.5 s, 8x1 3.6 s). Job template `~/slurm-tests/jdftx-job-template.sh` (default `-n 4 -c 2`; `-n 1 -c 8`
-  for Gamma-only systems and molecules).
+  for one Gamma-only system or molecule). **Several molecules: run them side by side** (2 x `-c 4` gave 1.24x the throughput of
+  1 x `-c 8` on solvated glycinate, 2026-11-06). Memory sets the limit: ~12.6 GB per solvated 20 Å box, ~3.8 GB gas phase.
 - **Tests:** ctest 11/11 (47 checks) for both builds, threads-only (`-n 1 -c 8`) and MPI (`JDFTX_LAUNCH="srun -n %d -c 2"`).
 - **`efficiency_testing` A/B** (4839c10f vs b3c54e1d, back to back, alternating order, 2 repetitions, otherwise idle machine; inputs and
   scripts in `~/software/jdftx-fork/bench/`; details in `efficiency_notes.md`, "mbook2019 CPU A/B"):
@@ -443,6 +444,10 @@ Verified 2026-11-05 by the Claude session on that machine; its system log is `~/
 
   Energies agree to 8e-15 Ha (Si), 5e-11 Ha (Pt) and 3e-13 Ha (D3), with the same iteration counts. These systems are small and the
   hardware differs, so the per-iteration gains are not directly comparable with the 27% for the 218-atom slab on Perlmutter GPUs.
+- **Molecule thread scaling** (2026-11-06, solvated glycinate in a 20 Å box, details in `efficiency_notes.md`, "mbook2019: thread
+  scaling on a solvated molecule"): 8 threads = 2.6x one thread. Causes: the 45 W cap (one core ~4.2 GHz, eight ~2.9 GHz),
+  17-19% thermal throttling at 8 threads, and memory bandwidth (solvated cycles are ~11x slower than the M5 Pro, gas ~4x).
+  Open lead: ~160 M minor page faults per solvated SCF cycle, 15-20% of CPU time in the kernel.
 - **Python:** conda env `dft` (Miniforge, conda-forge, no compilers/MPI in the env) with `benrich37/pymatgen-core@misc_fixes` installed
   editable from `~/software/pymatgen-core`. 2026-11-05: its `tests/io/jdftx` gave 390 passed and 1 tolerance-only failure (exact-0 compare at
   `atol=0`, see `~/envs/pymatgen-jdftx-issues.md` there).
@@ -462,7 +467,8 @@ Verified 2026-11-05 by the Claude session on that machine; its system log is `~/
   - *Unexplained, here only:* at 1x8 (one process, 8 threads) pyjdftx ran 18 s against the CLI's 23 s on the same input (3 reps each,
     0.71 vs 0.96 s per SCF cycle, 5x fewer minor page faults). At 4x2 the two are the same. Ruled out: library binding (LD_DEBUG), the
     env's libstdc++, the MPI thread level and the glibc mmap threshold. On this 2-atom cell 1x2 (9.4 s) is also faster than 1x8, so
-    threading overhead dominates tiny systems.
+    threading overhead dominates tiny systems. *2026-11-06:* not seen on molecules: on glycinate (gas and solvated) pyjdftx = CLI
+    to <1% with the same page-fault counts, so it only matters for tiny cells.
 
 ## Tests
 
