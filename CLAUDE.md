@@ -382,8 +382,8 @@ Running:
   `libmpi.so.40`. The CPU `jdftx -n` dry run succeeded (git hash 4fe71c7). **Status: unverified, not used by any job.**
   Next: a `gpu-debug` reference comparison against `build-gpu` (README check 2), then a 40GB production-like run
   (check 3). The Anvil GPUs are A100-SXM4-40GB (from `out` files), and production jobs run 2 ranks × 64 threads.
-  **gpu-debug test 2026-11-06 (job 21984568, g003, production layout): all checks passed**; the user has not yet been
-  asked to mark `STATUS` verified. Write-up: `/anvil/scratch/x-brich/claude_scratch/build_tests/eff-4fe71c77/RESULTS.md`.
+  **gpu-debug test 2026-11-06 (job 21984568, g003, production layout): all checks passed**; `STATUS` marked `status=verified`
+  on 2026-11-06 with the user's OK (scope: the 54-55-atom NO3_ads_gen class; not used by production yet). Write-up: `/anvil/scratch/x-brich/claude_scratch/build_tests/eff-4fe71c77/RESULTS.md`.
   - Case: the 55-atom VN4 production slab, from LCAO, 15 vacuum + 15 fluid iterations.
   - New vs old at equal np: slab np2 final ΔG 3e-12 Ha (≤2.6e-8 at any iteration), forces 4e-7. HNO3 ΔF ≤2e-10 at
     np1 and np2.
