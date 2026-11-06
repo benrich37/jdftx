@@ -172,6 +172,20 @@ template<int n> double vdWpotentialBJ(double r, double R0, double a1, double a2,
 	return E;
 }
 
+//! Return trace(transpose(L1) * C6 * L2), with C6 the real parts of a matrix in its column-major storage order.
+//! This replaces 3 such traces of matrix products per pair of atoms, the dominant cost: on CPU without threaded BLAS,
+//! every product launches threads (eblas_zgemm), and on GPU every product is a cuBLAS call with memory transfers.
+inline double contractC6(const std::vector<double>& C6, const std::vector<double>& L1, const std::vector<double>& L2)
+{	const double* C6col = C6.data();
+	double result = 0.;
+	for(double L2j: L2)
+	{	double L1C6 = 0.;
+		for(double L1i: L1)
+			L1C6 += L1i * *(C6col++);
+		result += L1C6 * L2j;
+	}
+	return result;
+}
 
 
 double VanDerWaalsD3::energyAndGrad(std::vector<Atom>& atoms, const double scaleFac, matrix3<>* E_RRTptr) const
@@ -192,18 +206,34 @@ double VanDerWaalsD3::energyAndGrad(std::vector<Atom>& atoms, const double scale
 	std::vector<vector3<>> forces(atoms.size()); //VDW forces per atom
 	matrix3<> E_RRT; //Stress * volume (updated only if E_RRTptr is non-null)
 	std::vector<double> diagC6(atoms.size()); //diagonal C6 for reporting
+	//C6 interpolation weights per atom and reference C6 per pair of species, as plain arrays for contractC6:
+	std::vector<std::vector<double>> Lall(atoms.size()), LprimeAll(atoms.size());
+	std::vector<std::vector<std::vector<double>>> C6all(pairParams.size());
+	for(size_t c=0; c<atoms.size(); c++)
+	{	matrix Lprime, L = atomParams[atoms[c].sp].getL(CN[c], Lprime);
+		for(int i=0; i<L.nRows(); i++)
+		{	Lall[c].push_back(L.data()[i].real());
+			LprimeAll[c].push_back(Lprime.data()[i].real());
+		}
+	}
+	for(size_t iSp1=0; iSp1<pairParams.size(); iSp1++)
+		for(const D3::PairParams& pp: pairParams[iSp1])
+		{	C6all[iSp1].push_back(std::vector<double>());
+			for(size_t i=0; i<pp.C6.nData(); i++)
+				C6all[iSp1].back().push_back(pp.C6.data()[i].real());
+		}
 	for(int c1=0; c1<int(atoms.size()); c1++)
 	{	const D3::AtomParams& ap1 = atomParams[atoms[c1].sp];
-		matrix L1prime, L1 = ap1.getL(CN[c1], L1prime); //C6 interpolation weights for atom 1
+		const std::vector<double>& L1 = Lall[c1], &L1prime = LprimeAll[c1]; //C6 interpolation weights for atom 1
 
 		for(int c2=0; c2<int(atoms.size()); c2++)
 		{	const D3::AtomParams& ap2 = atomParams[atoms[c2].sp];
-			matrix L2prime, L2 = ap2.getL(CN[c2], L2prime); //C6 interpolation weights for atom 2
+			const std::vector<double>& L2 = Lall[c2], &L2prime = LprimeAll[c2]; //C6 interpolation weights for atom 2
 
 			//Compute C6 and C8 for this pair:
 			const D3::PairParams& pp = pairParams[atoms[c1].sp][atoms[c2].sp];
 			double ratio8by6 = 3. * ap1.sqrtQ * ap2.sqrtQ;
-			double C6 = trace(transpose(L1) * pp.C6 * L2).real();
+			double C6 = contractC6(C6all[atoms[c1].sp][atoms[c2].sp], L1, L2);
 			double C8 = C6 * ratio8by6;
 			double R0 = dampBJ ? sqrt(C8/C6) : pp.R0; //BJ damping uses C8/C6 to get R0
 			if(c1 == c2) diagC6[c1] = C6; //only for reporting
@@ -245,8 +275,8 @@ double VanDerWaalsD3::energyAndGrad(std::vector<Atom>& atoms, const double scale
 			
 			//Propagate gradients to CN:
 			double E12_C6_tot = E12_C6 + E12_C8 * ratio8by6; //total derivative w.r.t C6
-			E_CN[c1] += E12_C6_tot * trace(transpose(L1prime) * pp.C6 * L2).real();
-			E_CN[c2] += E12_C6_tot * trace(transpose(L1) * pp.C6 * L2prime).real();
+			E_CN[c1] += E12_C6_tot * contractC6(C6all[atoms[c1].sp][atoms[c2].sp], L1prime, L2);
+			E_CN[c2] += E12_C6_tot * contractC6(C6all[atoms[c1].sp][atoms[c2].sp], L1, L2prime);
 		}
 	}
 	report(diagC6, "diagonal-C6", atoms, " %.2f");
