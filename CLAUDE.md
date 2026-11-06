@@ -382,6 +382,15 @@ Running:
   `libmpi.so.40`. The CPU `jdftx -n` dry run succeeded (git hash 4fe71c7). **Status: unverified, not used by any job.**
   Next: a `gpu-debug` reference comparison against `build-gpu` (README check 2), then a 40GB production-like run
   (check 3). The Anvil GPUs are A100-SXM4-40GB (from `out` files), and production jobs run 2 ranks × 64 threads.
+  **gpu-debug test 2026-11-06 (job 21984568, g003, production layout): all checks passed**; the user has not yet been
+  asked to mark `STATUS` verified. Write-up: `/anvil/scratch/x-brich/claude_scratch/build_tests/eff-4fe71c77/RESULTS.md`.
+  - Case: the 55-atom VN4 production slab, from LCAO, 15 vacuum + 15 fluid iterations.
+  - New vs old at equal np: slab np2 final ΔG 3e-12 Ha (≤2.6e-8 at any iteration), forces 4e-7. HNO3 ΔF ≤2e-10 at
+    np1 and np2.
+  - Slab speed: 1.22× per ElecMinimize iteration, D3 27× per call (1.39 → 0.051 s), setup 25% faster, run 23% shorter.
+    Memory 8 GB/GPU at np2, 14.6 GB at np1. All 66 held jobs are 54-55-atom systems of this kind.
+  - np1 vs np2 already differs from LCAO, the same way in both builds (HNO3 3.38e-5 Ha along the trajectory), so it
+    predates the new code and is not a regression.
 - **Anvil scheduler (Anvil session, 2026-11-05; Slurm 26.05.4, read from config/sacct/sprio, nothing changed):**
   - `gpu` and `gpu-debug` share nodes g[000-004,006-015] and have the same PriorityTier/JobFactor, so debug jobs get no
     priority boost. QOS `part-gpu`: MaxWall 2 days, MaxTRESPU gres/gpu=12. QOS `part-gpu-debug`: MaxWall 30 min,
@@ -462,6 +471,10 @@ Verified 2026-11-05 by the Claude session on that machine; its system log is `~/
   - *pyjdftx log bug (all machines; found here 2026-11-06, source not changed):* `initialize(comm, commAll, log, False)` opens `log`
     with "w" on **every** rank, so a rank that gets there late truncates what rank 0 already wrote (NUL bytes at the top of the log;
     the energies are unaffected). The CLI is safe because `-o` opens with "a". Workaround: pass `os.devnull` on ranks other than 0.
+    *Note (Anvil, 2026-11-06):* only without `-d`. `core/Util.cpp::initSystemCmdline` opens the `-o` file on every rank
+    (no head check, at 4fe71c77 and in the 52548a96 build), with "w" under `-d`. On Anvil a `-d` run at np=2 (old build,
+    `hno3_old_np2`) began with 66 NUL bytes, exactly the banner line. perlStuff calls `-i in -o out` without `-d`, so
+    production is unaffected. Avoid `-d` with np>1, or expect a damaged header.
     Fix: open the file only on the head rank in `_pyjdftx.cpp::initialize`. **User (2026-11-06): known bug, not to be fixed for now.**
     Use the workaround in every multi-rank pyjdftx script, and don't patch `_pyjdftx.cpp`.
   - *Unexplained, here only:* at 1x8 (one process, 8 threads) pyjdftx ran 18 s against the CLI's 23 s on the same input (3 reps each,
