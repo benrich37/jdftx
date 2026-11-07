@@ -456,7 +456,11 @@ Verified 2026-11-05 by the Claude session on that machine; its system log is `~/
 - **Molecule thread scaling** (2026-11-06, solvated glycinate in a 20 Å box, details in `efficiency_notes.md`, "mbook2019: thread
   scaling on a solvated molecule"): 8 threads = 2.6x one thread. Causes: the 45 W cap (one core ~4.2 GHz, eight ~2.9 GHz),
   17-19% thermal throttling at 8 threads, and memory bandwidth (solvated cycles are ~11x slower than the M5 Pro, gas ~4x).
-  Open lead: ~160 M minor page faults per solvated SCF cycle, 15-20% of CPU time in the kernel.
+  The ~160 M minor page faults per solvated SCF cycle (15-20% of CPU time in the kernel) are fixed by
+  `GLIBC_TUNABLES=glibc.malloc.hugetlb=1:glibc.malloc.mmap_threshold=67108864` (per process, glibc >= 2.35, no system change):
+  **−19% (gas) / −21% (solvated) per cycle**, identical energies, and far less thermal throttling (2026-11-07; details in
+  `efficiency_notes.md`, "mbook2019: page faults"). Both job templates here export it. *Suggestion for Perlmutter/Anvil agents
+  (not verified there): try it in a CPU job and compare `sys` time / minor faults with `/usr/bin/time -v`.*
 - **Python:** conda env `dft` (Miniforge, conda-forge, no compilers/MPI in the env) with `benrich37/pymatgen-core@misc_fixes` installed
   editable from `~/software/pymatgen-core`. 2026-11-05: its `tests/io/jdftx` gave 390 passed and 1 tolerance-only failure (exact-0 compare at
   `atol=0`, see `~/envs/pymatgen-jdftx-issues.md` there).
