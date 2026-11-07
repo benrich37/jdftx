@@ -715,11 +715,9 @@ the fork build `4839c10f` (Release, OpenBLAS with `OPENBLAS_NUM_THREADS=1`). Not
   gas-phase job, on a 58 GB Slurm node. Four `-c 2` solvated jobs (~50 GB) and more gas-phase jobs were not tested.
 - **pyjdftx = CLI on molecules:** gas 24.3 vs 24.3 s/cycle, solvated 227.3 vs 228.8, same page-fault counts. The 1x8 speed
   difference on bulk Si (CLAUDE.md, mbook2019 section) does not appear on real molecule workloads.
-- **Page-fault overhead (open lead):** about 160 M minor page faults per solvated SCF cycle (~10.9 M per gas cycle) at every
-  thread count, i.e. large arrays are faulted in again and again. Kernel time is 15-20% of all CPU time solvated and 9-10%
-  gas. The size of a fault is set by the 4 KB page size (transparent huge pages = `madvise` here). Untested ideas:
-  `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` (glibc 2.43 madvises THP for malloc'd memory: a per-process setting, no system
-  change), or a CPU memory pool for ScalarField/ColumnBundle temporaries in JDFTx.
+- **Page-fault overhead → fixed with a glibc tunable (2026-11-07):** about 160 M minor page faults per solvated SCF cycle
+  (~10.9 M per gas cycle) at every thread count, 15-20% of all CPU time in the kernel. `GLIBC_TUNABLES=glibc.malloc.hugetlb=1`
+  (+ `glibc.malloc.mmap_threshold=67108864`) removes most of it: −19% (gas) / −21% (solvated) per cycle. See the next section.
 
 ### Reproducing (mbook2019)
 
@@ -727,3 +725,41 @@ the fork build `4839c10f` (Release, OpenBLAS with `OPENBLAS_NUM_THREADS=1`). Not
 `run_mol.sh <cli|py> <tag>` (records `/usr/bin/time` resources), `summarize.py`, `thermal-log.sh` + `thermal_per_run.py`
 (throttling per run), `runs/`, `logs/`.
 
+## mbook2019: page faults → glibc huge-page tunable, −19% / −21% per SCF cycle (2026-11-07)
+
+Same machine, build `4839c10f`, same glycinate restarts as the previous section, 8 threads (`-n 1 -c 8`), one run at a time.
+Nothing here was measured on the M5 Pro (macOS has no glibc; the tunable is Linux-only).
+
+### What it is
+
+JDFTx allocates and frees large arrays (ScalarField / ColumnBundle temporaries) every iteration. glibc serves big blocks with
+fresh `mmap` regions and returns them on `free`, so the kernel re-faults the same memory in 4 KB pages over and over. With
+`glibc.malloc.hugetlb=1` glibc marks its large mappings `madvise(MADV_HUGEPAGE)`, so the kernel backs them with 2 MB
+transparent huge pages (512x fewer faults per GB). It is **per process** (an environment variable), needs no root and no
+system change: THP stays at the distribution default `madvise`. Requires glibc >= 2.35 (mbook2019: 2.43). Raising
+`glibc.malloc.mmap_threshold` to 64 MB keeps more medium arrays on the heap instead of fresh mappings.
+
+### Results
+
+| case (8 threads, 4-cycle restart) | GLIBC_TUNABLES | s/cycle | change | sys time | minor faults | CPU util |
+|---|---|---|---|---|---|---|
+| gas | (none, re-run today) | 23.9 | | 70 s | 43.8 M | 457% |
+| gas | `glibc.malloc.hugetlb=1` | 20.1 | −16% | 39 s | 1.8 M | 514% |
+| gas | `hugetlb=1:mmap_threshold=67108864` | **19.4** | **−19%** | 31 s | 4.0 M | 524% |
+| solvated | (none, re-run today) | 227.3 | | 880 s | 644 M | 512% |
+| solvated | `hugetlb=1:mmap_threshold=67108864` | **178.9** | **−21%** | 363 s | 12.5 M | 625% |
+
+- F identical in every run (gas −55.947269400, solvated −56.042799168 Ha); peak RSS unchanged (12.5 GB solvated, 3.8 GB gas).
+- The CPU-utilization column is the tell: threads stopped waiting on the kernel. Wall for the solvated run: 1122 → 893 s.
+- Side effect: with the tunable the package throttled ~1.6% of the time instead of ~18% during the baseline solvated run
+  (same ambient, back to back). Less kernel thrash also means less wasted power.
+- Why it may matter elsewhere: any Linux machine running JDFTx on glibc (Perlmutter and Anvil CPU nodes, CPU-side allocations of
+  GPU runs). Not tested there; the gain depends on how much of the time is page-fault-bound (here 15-20% solvated, 9-10% gas).
+  Cheap to try: set the variable in the job script and compare `sys` time and faults with `/usr/bin/time -v`.
+
+### Reproducing (mbook2019)
+
+Same `~/software/jdftx-fork/bench/mol/run_mol.sh` (the env is inherited by `sbatch`):
+`CASE=gly-solv GLIBC_TUNABLES=glibc.malloc.hugetlb=1:glibc.malloc.mmap_threshold=67108864 sbatch -n 1 -c 8 --mem=24G
+--hint=nomultithread run_mol.sh cli <tag>`; runs `gly-{gas,solv}_cli_c8_{r3,hugetlb1,hugetlb1mt}`, `summarize.py`.
+Both job templates on mbook2019 (`~/slurm-tests/jdftx-job-template.sh`, `pyjdftx-job-template.sh`) now export it.
