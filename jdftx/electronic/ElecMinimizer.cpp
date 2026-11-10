@@ -263,7 +263,11 @@ void ElecMinimizer::constrain(ElecGradient& dir)
 {	assert(dir.eInfo == &eInfo);
 	//Project component of search direction along current wavefunctions:
 	for(int q=eInfo.qStart; q<eInfo.qStop; q++)
-		dir.C[q] -= eVars.C[q] * (eVars.C[q]^O(dir.C[q]));
+	{	std::vector<matrix> VdagDir;
+		e.iInfo.project(dir.C[q], VdagDir);
+		matrix CdagOdir = dagO(eVars.C[q], eVars.VdagC[q], dir.C[q], VdagDir);
+		dir.C[q] -= eVars.C[q] * CdagOdir;
+	}
 }
 
 double ElecMinimizer::sync(double x) const

@@ -650,7 +650,8 @@ ScalarFieldArray ElecVars::calcDensity() const
 void ElecVars::orthonormalize(int q, matrix* extraRotation)
 {	assert(e->eInfo.isMine(q));
 	VdagC[q].clear();
-	matrix rot = orthoMatrix(C[q]^O(C[q], &VdagC[q])); //Compute matrix that orthonormalizes wavefunctions
+	e->iInfo.project(C[q], VdagC[q]);
+	matrix rot = orthoMatrix(dagO(C[q], VdagC[q], C[q], VdagC[q])); //Compute matrix that orthonormalizes wavefunctions
 	if(extraRotation) *extraRotation = (rot = rot * (*extraRotation)); //set rot and extraRotation to the net transformation
 	C[q] = C[q] * rot;
 	e->iInfo.project(C[q], VdagC[q], &rot); //update the atomic projections

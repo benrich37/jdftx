@@ -103,6 +103,9 @@ public:
 	//! Accumulate pseudopotential contribution to the overlap in OCq
 	void augmentOverlap(const ColumnBundle& Cq, ColumnBundle& OCq, matrix* VdagCq=0) const;
 	
+	//! Accumulate pseudopotential contribution to the overlap matrix Y1^O(Y2), given projections VdagY1 and VdagY2
+	void augmentOverlap(const matrix& VdagY1, const matrix& VdagY2, matrix& Y1dagOY2) const;
+	
 	//! Derivative of augmented overlap operator w.r.t. atomic position
 	void augmentOverlapDeriv(const ColumnBundle& Cq, ColumnBundle& OCq, ColumnBundle& V, ColumnBundle& dV) const;
 	
