@@ -345,6 +345,11 @@ void IonInfo::augmentOverlap(const std::vector<matrix>& VdagY1, const std::vecto
 		species[sp]->augmentOverlap(VdagY1[sp], VdagY2[sp], Y1dagOY2);
 }
 
+void IonInfo::augmentOverlapGrad(const std::vector<matrix>& VdagCq, const matrix& M, std::vector<matrix>& HVdagCq) const
+{	for(unsigned sp=0; sp<species.size(); sp++)
+		species[sp]->augmentOverlapGrad(VdagCq[sp], M, HVdagCq[sp]);
+}
+
 void IonInfo::augmentDensityInit() const
 {	for(auto sp: species) ((SpeciesInfo&)(*sp)).augmentDensityInit();
 }
