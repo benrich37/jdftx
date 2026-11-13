@@ -142,7 +142,8 @@ EnumStringMap<DumpVariable> varMap
 	DumpDn, "Dn",
 	DumpDVext, "DVext",
 	DumpDVscloc, "DVscloc",
-	DumpHC, "HC"
+	DumpHC, "HC",
+	DumpLowdin, "Lowdin"
 );
 EnumStringMap<DumpVariable> varDescMap
 (	DumpNone,           "Dump nothing",
@@ -206,7 +207,8 @@ EnumStringMap<DumpVariable> varDescMap
 	DumpDn, 			"First order change in electronic density",
 	DumpDVext, 			"External perturbation",
 	DumpDVscloc, 		"First order change in local self-consistent potential",
-	DumpHC,				"Hamiltonian applied on wavefunctions for non self-consistent forces"
+	DumpHC,				"Hamiltonian applied on wavefunctions for non self-consistent forces",
+	DumpLowdin,         "Overlap <phi|O|phi> and Kohn-Sham Hamiltonian <phi|H|phi> (without exact exchange) of the atomic orbitals of BandProjections, for Lowdin orthonormalization, in binary files aoOverlap and aoHamiltonian (one column-major nOrbitals x nOrbitals matrix per state)"
 );
 
 struct CommandDump : public Command

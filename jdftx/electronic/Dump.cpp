@@ -63,6 +63,28 @@ void Dump::setup(const Everything& everything)
 		}
 }
 
+//Kohn-Sham Hamiltonian in the subspace of Y, i.e. Y^H(Y), with the terms of ElecVars::applyHamiltonian except exact exchange
+static matrix subspaceHamiltonian(const Everything& e, const ColumnBundle& Y)
+{	const ElecVars& eVars = e.eVars;
+	const IonInfo& iInfo = e.iInfo;
+	const QuantumNumber& qnum = *(Y.qnum);
+	const std::vector<matrix>& VdagY = Y.projections();
+	std::vector<matrix> HVdagY(iInfo.species.size());
+	ColumnBundle HY = Idag_DiagV_I(Y, eVars.Vscloc); //local self-consistent potential
+	iInfo.augmentDensitySphericalGrad(qnum, VdagY, HVdagY); //pseudopotential density augmentation
+	if(e.exCorr.needsKEdensity() && eVars.Vtau[qnum.index()]) //orbital KE (meta-GGA)
+	{	for(int iDir=0; iDir<3; iDir++)
+			HY -= (0.5*e.gInfo.dV) * D(Idag_DiagV_I(D(Y,iDir), eVars.Vtau), iDir);
+	}
+	if(e.eInfo.hasU) iInfo.rhoAtom_grad(Y, eVars.U_rhoAtom, HY); //DFT+U
+	HY += (-0.5) * L(Y); //kinetic
+	iInfo.EnlAndGrad(qnum, eye(Y.nCols()), VdagY, HVdagY); //nonlocal pseudopotentials
+	matrix YdagHY = Y ^ HY;
+	for(unsigned sp=0; sp<HVdagY.size(); sp++)
+		if(HVdagY[sp]) YdagHY += dagger(VdagY[sp]) * HVdagY[sp];
+	return YdagHY;
+}
+
 
 void Dump::operator()(DumpFrequency freq, int iter)
 {	if(!e) return;
@@ -277,6 +299,27 @@ void Dump::operator()(DumpFrequency freq, int iter)
 	{	StartDump("bandProjections")
 		dumpProjections(*e, fname.c_str(), bandProjectionOrtho, bandProjectionNorm);
 		EndDump
+	}
+	
+	if(ShouldDump(Lowdin))
+	{	//Overlap and Hamiltonian matrices of the atomic orbitals used in BandProjections:
+		if(e->exCorr.exxFactor())
+			logPrintf("WARNING: aoHamiltonian does not include exact exchange.\n");
+		int nOrbitals = iInfo.nAtomicOrbitals();
+		std::vector<matrix> S(eInfo.nStates), H(eInfo.nStates);
+		for(int q=eInfo.qStart; q<eInfo.qStop; q++)
+		{	ColumnBundle psi = iInfo.getAtomicOrbitals(q, false);
+			S[q] = dotO(psi, psi);
+			H[q] = subspaceHamiltonian(*e, psi);
+		}
+		{	StartDump("aoOverlap")
+			eInfo.write(S, fname.c_str(), nOrbitals, nOrbitals);
+			EndDump
+		}
+		{	StartDump("aoHamiltonian")
+			eInfo.write(H, fname.c_str(), nOrbitals, nOrbitals);
+			EndDump
+		}
 	}
 	
 	if(ShouldDump(EigStats))
