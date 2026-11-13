@@ -570,6 +570,31 @@ On `vib_chk`, `vibrations` saves each configuration's forces and dipole as `grad
 directory: stale files from an earlier build or input are silently reused, and `make testclean` does not
 delete them.
 
+## Branch notes: atomic-orbital overlap and Hamiltonian dumps (`lowdin_dumps`)
+
+Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, none on GPU yet.
+- Branched from `proj_efficiency_v2` at `b1829b81`, since it uses that branch's cached `ColumnBundle::projections()` and
+  `dotO`. The changes were left uncommitted for the user to commit. Files: `electronic/Dump.{h,cpp}`, `commands/dump.cpp`.
+- `dump <freq> Lowdin` writes `aoOverlap` = ⟨φ|O|φ⟩ (`dotO`) and `aoHamiltonian` = ⟨φ|H|φ⟩ through `eInfo.write`:
+  complex128, one column-major nOrbitals×nOrbitals matrix per state, states in order, orbitals in BandProjections order
+  and phase (no i^l). H comes from a static `subspaceHamiltonian` in `Dump.cpp`, with the terms of
+  `ElecVars::applyHamiltonian` in the same order: Vscloc, augmentation, meta-GGA Vtau, DFT+U, kinetic, nonlocal.
+  Exact exchange is left out, with a warning. The files are byte-compatible with the earlier crawfish patch
+  (`~/Desktop/jdftx_crawfish_edits`, `band-projection-params ... aoMatrices`), which lacked +U and meta-GGA.
+- Tests: `~/Desktop/jdftx_hold/lowdin_dumps_tests/` (`run_tests.sh`, `compare.py`, `results.txt`). NH4+ in CANDLE
+  (USPP, z-spin), fcc Ni with +U, fcc Ni vector-spin, Si with mgga-TPSS (SG15). The test-only build adds
+  `subspaceHamiltonian(C) == Hsub` and matches to 0 to 9e-16 Eh. Compared with the crawfish patch: S agrees to 3e-14,
+  and H too where both contain the same terms. Ortho BandProjections = S^-1/2 × full-O projections to print
+  precision. np=2 = np=1 to 4e-14 except for vector-spin (next bullet). ctest 11/11.
+- **Upstream bug found (Mac, 2026-11-13, present in upstream `bea9f45f`): noncollinear GGA with MPI np>1 gives a
+  rank-dependent XC potential.** In `ExCorr.cpp`'s gradient propagation, `spinDiagonalizeGrad(..., dataPref(E_n), ...)`
+  is called inside the MPI-split loop over gradient directions and adds into `E_n` after `E_n` was all-reduced, so each
+  rank misses the other ranks' directions. Fcc Ni vector-spin (PBE), same state: density equal to 1e-15, Vscloc np1 vs
+  np2/np3 off by 3.3e-3 (np2 = np3), eigenvalues by 1e-3 Eh. A test fix that accumulates that term separately and
+  reduces it gives np1 = np2 = np3 to 1e-13, and np1 is unchanged. Patch and check script:
+  `lowdin_dumps_tests/xc_noncollinear_mpi_fix.patch`, `ni_vspin_mpi_check.sh`. Not on any branch yet. Collinear
+  (z-spin, unpolarized) runs never take this path.
+
 ## Branch notes: electronic minimizer efficiency (`efficiency_testing`)
 
 Rationale, tests and A/B timings are in `efficiency_notes.md` on that branch (patches in `efficiency_patches/`).
