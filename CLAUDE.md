@@ -586,6 +586,16 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   `subspaceHamiltonian(C) == Hsub` and matches to 0 to 9e-16 Eh. Compared with the crawfish patch: S agrees to 3e-14,
   and H too where both contain the same terms. Ortho BandProjections = S^-1/2 × full-O projections to print
   precision. np=2 = np=1 to 4e-14 except for vector-spin (next bullet). ctest 11/11.
+- Band-sum convergence (Mac, 2026-11-13; `lowdin_dumps_tests/band_convergence/`: `run.sh`, `convergence.py`,
+  `summary.txt`, `convergence.png`). With elec-n-bands = nbasis (start from `wavefunction read` of C = I/sqrt(detR);
+  LCAO and the bandwidth-limited random start are numerically singular there), ortho band sums equal I and
+  S^-1/2 H S^-1/2 to the 7-decimal BandProjections floor (≤3e-7). That holds for N2 with USPP and norm-conserving
+  pseudopotentials and for Ni +U at k≠0, and crawfish's band-space bond ICOHP reaches the exact-Löwdin value. Non-ortho
+  band sums converge to S and H only for norm-conserving. For USPP they stop 0.03-0.25 away, because non-ortho
+  projections use the single-centre `OpsiRadial`; that is what the old patch's `fullO` changed, and it is not on the
+  branch. N2 ICOHP is at 0.76-0.79 of exact with 8-80 bands in a 24.6 bohr box (0.01-0.13% of nbasis), and ≥0.95
+  only past ~5-20% of nbasis. Separate upstream crash seen there (also at `bea9f45f`): `basis single` aborts at exit
+  with a double free in `Basis::~Basis`, even for a dry run.
 - **Upstream bug found (Mac, 2026-11-13, present in upstream `bea9f45f`): noncollinear GGA with MPI np>1 gives a
   rank-dependent XC potential.** In `ExCorr.cpp`'s gradient propagation, `spinDiagonalizeGrad(..., dataPref(E_n), ...)`
   is called inside the MPI-split loop over gradient directions and adds into `E_n` after `E_n` was all-reduced, so each
