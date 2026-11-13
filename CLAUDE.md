@@ -596,6 +596,13 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   branch. N2 ICOHP is at 0.76-0.79 of exact with 8-80 bands in a 24.6 bohr box (0.01-0.13% of nbasis), and ≥0.95
   only past ~5-20% of nbasis. Separate upstream crash seen there (also at `bea9f45f`): `basis single` aborts at exit
   with a double free in `Basis::~Basis`, even for a dry run.
+- Separate runs per band count (Mac, 2026-11-13; `lowdin_dumps_tests/band_series/`: `run.sh`, `analyze.py`, `plot.py`,
+  `summary.txt`, `convergence.png`). N2 USPP, 8 bohr, 10 Ha, elec-n-bands = 6 (fewest allowed with smearing) to 751 =
+  nbasis in 10 steps, random orthonormal start, `converge-empty-states yes` with `elec-eigen-algo CG` (Davidson refuses
+  2·nBands > nbasis). Each run's Löwdin-basis errors equal those of the lowest nb bands of the 751-band run to 3 digits
+  (eigenvalues within 1e-5 Eh), so the prefix analysis above stands, provided empty states are converged: without
+  that, they were 0.01-0.03 Eh RMS off (the `|deigs|` printed by converge-empty-states). Overlap error 0.50 → 4.5e-3 →
+  1.5e-7, H 0.59 → 3.0e-2 → 1.6e-7 at 6 / 89 / 751 bands; ICOHP −0.80 / −1.157 / −1.169 (exact −1.169).
 - **Upstream bug found (Mac, 2026-11-13, present in upstream `bea9f45f`): noncollinear GGA with MPI np>1 gives a
   rank-dependent XC potential.** In `ExCorr.cpp`'s gradient propagation, `spinDiagonalizeGrad(..., dataPref(E_n), ...)`
   is called inside the MPI-split loop over gradient directions and adds into `E_n` after `E_n` was all-reduced, so each
