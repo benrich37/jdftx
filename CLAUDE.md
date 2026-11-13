@@ -592,8 +592,10 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   rank misses the other ranks' directions. Fcc Ni vector-spin (PBE), same state: density equal to 1e-15, Vscloc np1 vs
   np2/np3 off by 3.3e-3 (np2 = np3), eigenvalues by 1e-3 Eh. A test fix that accumulates that term separately and
   reduces it gives np1 = np2 = np3 to 1e-13, and np1 is unchanged. Patch and check script:
-  `lowdin_dumps_tests/xc_noncollinear_mpi_fix.patch`, `ni_vspin_mpi_check.sh`. Not on any branch yet. Collinear
-  (z-spin, unpolarized) runs never take this path.
+  `lowdin_dumps_tests/xc_noncollinear_mpi_fix.patch`, `ni_vspin_mpi_check.sh`. Collinear (z-spin, unpolarized) runs
+  never take this path. The fix goes in its own PR: branch `xc_noncollinear_mpi_fix` = upstream `bea9f45f` (created
+  2026-11-13, no commits yet, not pushed). The work is handed off in
+  `~/Desktop/jdftx_hold/xc_noncollinear_mpi_fix/HANDOFF.md` (Mac).
 
 ## Branch notes: electronic minimizer efficiency (`efficiency_testing`)
 
