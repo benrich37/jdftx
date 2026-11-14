@@ -610,7 +610,8 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   band sums converge to S and H only for norm-conserving. For USPP they stop 0.03-0.25 away, because non-ortho
   projections use the single-centre `OpsiRadial`; that is what the old patch's `fullO` changed, and it is not on the
   branch. N2 ICOHP is at 0.76-0.79 of exact with 8-80 bands in a 24.6 bohr box (0.01-0.13% of nbasis), and ≥0.95
-  only past ~5-20% of nbasis. Separate upstream crash seen there (also at `bea9f45f`): `basis single` aborts at exit
+  only past ~5-20% of nbasis (*Mac, 2026-11-14: the controlling variable is the absolute band count, not the fraction of
+  nbasis, at least for the cutoff; see the 20 Ha series in the next bullet*). Separate upstream crash seen there (also at `bea9f45f`): `basis single` aborts at exit
   with a double free in `Basis::~Basis`, even for a dry run.
 - Separate runs per band count (Mac, 2026-11-13; `lowdin_dumps_tests/band_series/`: `run.sh`, `analyze.py`, `plot.py`,
   `summary.txt`, `convergence.png`). N2 USPP, 8 bohr, 10 Ha, elec-n-bands = 6 (fewest allowed with smearing) to 751 =
@@ -619,6 +620,12 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   (eigenvalues within 1e-5 Eh), so the prefix analysis above stands, provided empty states are converged: without
   that, they were 0.01-0.03 Eh RMS off (the `|deigs|` printed by converge-empty-states). Overlap error 0.50 → 4.5e-3 →
   1.5e-7, H 0.59 → 3.0e-2 → 1.6e-7 at 6 / 89 / 751 bands; ICOHP −0.80 / −1.157 / −1.169 (exact −1.169).
+  20 Ha series (Mac, 2026-11-14; `band_series/e20/`, same scripts with the directory as argument, 2109 plane waves,
+  6 to 2109 bands, ~1.5 h at 16 threads): the same agreement with the complete run's prefix. At equal absolute band
+  count the two cutoffs nearly coincide (H error 2.8e-2 / 3.3e-2 at 100 bands, 6.6e-3 / 9.1e-3 at 200, 10 / 20 Ha),
+  while at equal fraction of nbasis 20 Ha is ~7x better. So the bands needed are set by the energy window above the
+  orbitals, which a higher cutoff does not move; at fixed cutoff nbasis scales with volume, which is why the box-size
+  cases looked fraction-controlled. Raw USPP H grows with nb at 20 Ha (0.02 → 0.14), unlike S (~0.025).
 - **Upstream bug found (Mac, 2026-11-13, present in upstream `bea9f45f`): noncollinear GGA with MPI np>1 gives a
   rank-dependent XC potential.** In `ExCorr.cpp`'s gradient propagation, `spinDiagonalizeGrad(..., dataPref(E_n), ...)`
   is called inside the MPI-split loop over gradient directions and adds into `E_n` after `E_n` was all-reduced, so each
