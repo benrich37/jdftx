@@ -432,6 +432,22 @@ Verified 2026-11-05 by the Claude session on that machine; its system log is `~/
   cmake -D CMAKE_BUILD_TYPE=Release -D EnableLibXC=yes -D CBLAS_LIBRARY=/usr/lib/x86_64-linux-gnu/libopenblas.so ../src/jdftx
   srun -n 1 -c 16 --hint=multithread make -j16      # 72 s
   ```
+- **mbook2019 (now SMAL), 2026-11-14: production = `proj_efficiency_v2` `b1829b81`.** The machine was renamed to SMAL (hostname
+  `smal`, Slurm cluster and node `smal`, Tailscale `smal`); the paths below are unchanged. New build in
+  `~/software/jdftx-fork/build-proj_efficiency_v2-b1829b81`, built from a git worktree (`~/software/jdftx-fork/src-proj_efficiency_v2`,
+  local branch `proj_efficiency_v2`) so the `efficiency_testing` source and its build `~/software/jdftx-fork/build` (4839c10f) stay
+  intact as a rollback. Same CMake cache as before (all user-facing options compared identical), 71 s compile, 37 routine warnings.
+  `~/software/jdftx-fork/prod` is a symlink to the production build; `jdftx` on PATH, the job template, `run-tests.sh` and
+  `~/envs/build-pyjdftx.sh` default to it, so a future switch is one `ln -sfn`. Binaries keep an absolute RUNPATH to their own
+  build dir, so build dirs must not be moved or renamed.
+  ctest 11/11 (47/47 checks) threads-only and MPI. A/B against 4839c10f, back to back, 2 reps each (bench `v2` label): energies
+  identical (Si 6e-15, Pt12 4e-11, Pt180 D3 2e-14 Ha), iteration counts identical, time per iteration within 1-2% (Si +1.4%,
+  Pt12 -0.8%, D3 -0.5%), so the projection-caching generalization neither helps nor costs on these small CPU cases.
+  **4839c10f does not contain the D3 heteronuclear C6 fix `b758dd5c`; `b1829b81` does** (`git merge-base --is-ancestor`). The
+  homonuclear Pt180 D3 benchmark cannot show the difference.
+  pyjdftx in the `dft` env still links 4839c10f until `~/envs/build-pyjdftx.sh` is re-run (the Claude session there was not
+  allowed to run it; the user runs it). `CudaManagedMemory` builds make no sense here: everything it changes is behind
+  `GPU_ENABLED`, and the machine has no NVIDIA GPU.
 - **Two CMake pitfalls seen here:** (1) no build type means no `-O` (see the note under the Perlmutter recipe); (2) FindCBLAS picks
   `libgslcblas` (GSL's reference CBLAS) ahead of OpenBLAS. `CBLAS_LIBRARY` fixes it; checked with `LD_BIND_NOW=1 LD_DEBUG=bindings`
   that `cblas_zgemm` then binds to libopenblas.
