@@ -612,7 +612,8 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   spatial-weight DOS overwrites it. All earlier tests used `dump End` (or dump-only), where it is current. Wrong by
   2.8 Eh (fcc Ni, GBRV) in two cases: `dump Electronic AO` under `electronic-scf`, and `dump End AO` after
   `dump Ionic FermiDensity` (also EresolvedDensity, SIC, spatial DOS at Ionic). `dump Init AO` is rejected at parsing.
-  Fix (not applied; the user decides): one line `iInfo.augmentDensityGridGrad(eVars.Vscloc);` before the state loop of
+  Fix (applied on the Mac working tree 2026-11-16 at the user's request, uncommitted on top of `e81d53b0`; rechecked
+  with the rebuilt branch build): one line `iInfo.augmentDensityGridGrad(eVars.Vscloc);` before the state loop of
   the AO block (collective, so not inside the per-state function). With it both cases agree with `dump End` to SCF
   convergence (4e-6) and a fixed-state dump-only H is unchanged (2e-15). Tested alternative: drop
   `subspaceHamiltonian` and swap psi into `eVars.C[q]` around `applyHamiltonian(q, eye, Hpsi, ener, true, false)`, as
