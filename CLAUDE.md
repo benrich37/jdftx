@@ -606,6 +606,18 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   `subspaceHamiltonian(C) == Hsub` and matches to 0 to 9e-16 Eh. Compared with the crawfish patch: S agrees to 3e-14,
   and H too where both contain the same terms. Ortho BandProjections = S^-1/2 × full-O projections to print
   precision. np=2 = np=1 to 4e-14 except for vector-spin (next bullet). ctest 11/11.
+- **Open bug at `e81d53b0` (Mac, 2026-11-16; the rename is committed as `e81d53b0`): aoHamiltonian can miss the
+  ultrasoft augmentation term.** `subspaceHamiltonian` calls `augmentDensitySphericalGrad`, which reads
+  `SpeciesInfo::E_nAug`. That is only current after `augmentDensityGridGrad(Vscloc)`; `calcDensity()` zeroes it and
+  spatial-weight DOS overwrites it. All earlier tests used `dump End` (or dump-only), where it is current. Wrong by
+  2.8 Eh (fcc Ni, GBRV) in two cases: `dump Electronic AO` under `electronic-scf`, and `dump End AO` after
+  `dump Ionic FermiDensity` (also EresolvedDensity, SIC, spatial DOS at Ionic). `dump Init AO` is rejected at parsing.
+  Fix (not applied; the user decides): one line `iInfo.augmentDensityGridGrad(eVars.Vscloc);` before the state loop of
+  the AO block (collective, so not inside the per-state function). With it both cases agree with `dump End` to SCF
+  convergence (4e-6) and a fixed-state dump-only H is unchanged (2e-15). Tested alternative: drop
+  `subspaceHamiltonian` and swap psi into `eVars.C[q]` around `applyHamiltonian(q, eye, Hpsi, ener, true, false)`, as
+  BandDavidson does (same H to 4e-15; +8/−25 lines; would include exact exchange in fixed-H runs, untested).
+  Evidence and both patches: `lowdin_dumps_tests/stale_aug/` (`run.sh`, `compare.py`, `results.txt`).
 - Band-sum convergence (Mac, 2026-11-13; `lowdin_dumps_tests/band_convergence/`: `run.sh`, `convergence.py`,
   `summary.txt`, `convergence.png`). With elec-n-bands = nbasis (start from `wavefunction read` of C = I/sqrt(detR);
   LCAO and the bandwidth-limited random start are numerically singular there), ortho band sums equal I and
