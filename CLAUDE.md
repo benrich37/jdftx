@@ -590,8 +590,12 @@ delete them.
 
 Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, none on GPU yet.
 - Branched from `proj_efficiency_v2` at `b1829b81`, since it uses that branch's cached `ColumnBundle::projections()` and
-  `dotO`. The changes were left uncommitted for the user to commit. Files: `electronic/Dump.{h,cpp}`, `commands/dump.cpp`.
-- `dump <freq> Lowdin` writes `aoOverlap` = ⟨φ|O|φ⟩ (`dotO`) and `aoHamiltonian` = ⟨φ|H|φ⟩ through `eInfo.write`:
+  `dotO`. The user committed and pushed it as `98b5cd4b` (2026-11-13), with the variable named `Lowdin`. On 2026-11-16
+  it was renamed `AO` (`DumpAO`, "AO", description without "for Lowdin orthonormalization"), uncommitted: S and H are
+  plain non-orthogonal AO-basis matrices, and Löwdin (S^-1/2 H S^-1/2), Mulliken/LOBSTER-style (H c = ε S c) and
+  projected-Wannier analyses all use the same two files. The rename gives byte-identical aoOverlap and aoHamiltonian
+  to within thread noise (≤3e-15), and `Lowdin` is rejected at parsing. Files: `electronic/Dump.{h,cpp}`, `commands/dump.cpp`.
+- `dump <freq> AO` writes `aoOverlap` = ⟨φ|O|φ⟩ (`dotO`) and `aoHamiltonian` = ⟨φ|H|φ⟩ through `eInfo.write`:
   complex128, one column-major nOrbitals×nOrbitals matrix per state, states in order, orbitals in BandProjections order
   and phase (no i^l). H comes from a static `subspaceHamiltonian` in `Dump.cpp`, with the terms of
   `ElecVars::applyHamiltonian` in the same order: Vscloc, augmentation, meta-GGA Vtau, DFT+U, kinetic, nonlocal.
