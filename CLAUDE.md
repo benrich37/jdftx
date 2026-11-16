@@ -612,13 +612,22 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   spatial-weight DOS overwrites it. All earlier tests used `dump End` (or dump-only), where it is current. Wrong by
   2.8 Eh (fcc Ni, GBRV) in two cases: `dump Electronic AO` under `electronic-scf`, and `dump End AO` after
   `dump Ionic FermiDensity` (also EresolvedDensity, SIC, spatial DOS at Ionic). `dump Init AO` is rejected at parsing.
-  Fix (applied on the Mac working tree 2026-11-16 at the user's request, uncommitted on top of `e81d53b0`; rechecked
-  with the rebuilt branch build): one line `iInfo.augmentDensityGridGrad(eVars.Vscloc);` before the state loop of
+  Fix (committed by the user as `1d78ef13`, 2026-11-16; rechecked with the rebuilt branch build): one line `iInfo.augmentDensityGridGrad(eVars.Vscloc);` before the state loop of
   the AO block (collective, so not inside the per-state function). With it both cases agree with `dump End` to SCF
   convergence (4e-6) and a fixed-state dump-only H is unchanged (2e-15). Tested alternative: drop
   `subspaceHamiltonian` and swap psi into `eVars.C[q]` around `applyHamiltonian(q, eye, Hpsi, ener, true, false)`, as
   BandDavidson does (same H to 4e-15; +8/−25 lines; would include exact exchange in fixed-H runs, untested).
   Evidence and both patches: `lowdin_dumps_tests/stale_aug/` (`run.sh`, `compare.py`, `results.txt`).
+  *Mac, 2026-11-16 (later):* that alternative is in the Mac working tree, uncommitted on `1d78ef13`, for the user to
+  review (+6/−24 lines); whether it stays is the user's call. Cost, from a test-only build that computes H both ways
+  in one process (8 threads, two passes per state): bit-identical H; H part +20% on the 12-atom MnO2 bench slab
+  (16 states, 84 orbitals: 0.66 → 0.80 s in total, against 2.7 s per ElecMinimize iteration), +11% on NH4+ in a
+  37.8 bohr box, +16% to +73% on the tiny Ni/Si cells (≤14 ms). The extra work is `projectGrad` (V·HVdagC) and the
+  KE trace; peak memory is the same by the code (three nOrbitals × nbasis arrays in both). The working-tree build
+  reproduces the 2026-11-13 reference dumps to ≤2e-14 Eh (USPP + fluid, +U, vector-spin, meta-GGA). In fixed-H hybrid
+  runs `applyHamiltonian` adds the ACE exchange, which is only exact within the span of the bands, so the warning
+  text would be wrong there (read from the code, not run). Evidence: `lowdin_dumps_tests/reuse_cost/` (`run.sh`,
+  `check.py`, `timing_build.patch`, `results.txt`).
 - Band-sum convergence (Mac, 2026-11-13; `lowdin_dumps_tests/band_convergence/`: `run.sh`, `convergence.py`,
   `summary.txt`, `convergence.png`). With elec-n-bands = nbasis (start from `wavefunction read` of C = I/sqrt(detR);
   LCAO and the bandwidth-limited random start are numerically singular there), ortho band sums equal I and
