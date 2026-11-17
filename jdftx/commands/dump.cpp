@@ -1154,6 +1154,7 @@ struct CommandBandProjectionParams : public Command
 		comments = "Control band-projections output:\n"
 			"\t<ortho>: whether to use ortho-orbitals.\n"
 			"\t<norm>: whether to output only norm or complex amplitude.";
+		forbid("crystal-orbital");
 	}
 
 	void process(ParamList& pl, Everything& e)
@@ -1168,6 +1169,42 @@ struct CommandBandProjectionParams : public Command
 	}
 }
 commandBandProjectionParams;
+
+
+struct CommandCrystalOrbital : public Command
+{
+	CommandCrystalOrbital() : Command("crystal-orbital", "jdftx/Output")
+	{
+		format = "[<freq>=End]";
+		comments =
+			"Output everything needed for crystal-orbital (COHP/COOP-type) analysis\n"
+			"in the atomic-orbital basis, eg. using crawfish. Equivalent to:\n"
+			"\n"
+			"   dump <freq> BandProjections AO BandEigs Fillings Kpoints\n"
+			"   band-projection-params yes no\n"
+			"\n"
+			"where <freq> is any dump frequency except Init (see command dump).\n"
+			"Use command dump explicitly to also output these at other frequencies.";
+		forbid("band-projection-params");
+	}
+
+	void process(ParamList& pl, Everything& e)
+	{	pl.get(freq, DumpFreq_End, freqMap, "freq");
+		if(freq==DumpFreq_Init) throw string("<freq> must not be Init");
+		for(DumpVariable var: {DumpBandProjections, DumpAO, DumpBandEigs, DumpFillings, DumpKpoints})
+			e.dump.insert(std::make_pair(freq, var));
+		e.dump.bandProjectionOrtho = true;
+		e.dump.bandProjectionNorm = false;
+	}
+
+	void printStatus(Everything& e, int iRep)
+	{	logPrintf("%s", freqMap.getString(freq));
+	}
+
+private:
+	DumpFrequency freq;
+}
+commandCrystalOrbital;
 
 
 struct CommandCprimeParams : public Command
