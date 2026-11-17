@@ -642,6 +642,11 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   the upstream XC bug below. New behaviour, run on Si PBE0 (SG15): in a fixed-H run (`fix-electron-potential`) H now
   contains the ACE exchange (up to 0.23 Eh, negative definite as expected), so the warning and the `dump` doc text
   say so; in total-energy runs H still has no exact exchange. Script and output: `reuse_cost/mpi_exx.sh`, `mpi_exx.txt`.
+  The user committed that as `0017864d`. *Mac, 2026-11-16 (later still):* at the user's request the variable `AO` is
+  split into **`AtomicOverlap`** (aoOverlap) and **`AtomicHamiltonian`** (aoHamiltonian), each dumped on its own; file
+  names and formats are unchanged, and `AO` is now rejected at parsing. Uncommitted on `0017864d` (`Dump.h`, `Dump.cpp`,
+  `commands/dump.cpp`). Dumps identical to before (S byte-identical, H to 4e-15), all checks above rerun and passing.
+  The test scripts take `AO=AO` in the environment for builds from before the split.
 - Band-sum convergence (Mac, 2026-11-13; `lowdin_dumps_tests/band_convergence/`: `run.sh`, `convergence.py`,
   `summary.txt`, `convergence.png`). With elec-n-bands = nbasis (start from `wavefunction read` of C = I/sqrt(detR);
   LCAO and the bandwidth-limited random start are numerically singular there), ortho band sums equal I and
