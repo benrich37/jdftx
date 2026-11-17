@@ -634,6 +634,14 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   `dump End AO`, 8 threads; `reuse_cost/iter_cost.sh`, `iter_cost.py`, `iter_cost.txt`): MnO2 slab +0.14 s = 4.9% of a
   2.85 s iteration; NH4+ in CANDLE +0.024 s = 0.2% of an 11.2 s solvated iteration (1.3% of a 1.8 s vacuum one);
   fcc Ni +U 11%, Ni vector-spin 7%, Si mGGA 4% (all ≤14 ms). Paid once per dump, not per iteration.
+  *Mac, 2026-11-16 (night):* **reversed: Shankar prefers the `applyHamiltonian` route, so the user asked for the
+  switch.** It is in the Mac working tree, uncommitted on `1d78ef13` (`Dump.cpp` +9/−25, `commands/dump.cpp` 1 line;
+  copy in `reuse_cost/applyHamiltonian_on_1d78ef13.patch`): `subspaceHamiltonian` is gone, the refresh line stays.
+  Checked with the rebuilt branch build: reference dumps reproduced to ≤2e-14 Eh (MnO2 8e-13), the stale-`E_nAug`
+  cases still right, np=2 = np=1 to 2e-14 (Ni +U) and 4e-13 (MnO2); Ni vector-spin differs by 6e-3 at np=2, which is
+  the upstream XC bug below. New behaviour, run on Si PBE0 (SG15): in a fixed-H run (`fix-electron-potential`) H now
+  contains the ACE exchange (up to 0.23 Eh, negative definite as expected), so the warning and the `dump` doc text
+  say so; in total-energy runs H still has no exact exchange. Script and output: `reuse_cost/mpi_exx.sh`, `mpi_exx.txt`.
 - Band-sum convergence (Mac, 2026-11-13; `lowdin_dumps_tests/band_convergence/`: `run.sh`, `convergence.py`,
   `summary.txt`, `convergence.png`). With elec-n-bands = nbasis (start from `wavefunction read` of C = I/sqrt(detR);
   LCAO and the bandwidth-limited random start are numerically singular there), ortho band sums equal I and
