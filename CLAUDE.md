@@ -628,6 +628,12 @@ Written by the Mac (arm64) session, 2026-11-13; all tests CPU-only on the Mac, n
   runs `applyHamiltonian` adds the ACE exchange, which is only exact within the span of the bands, so the warning
   text would be wrong there (read from the code, not run). Evidence: `lowdin_dumps_tests/reuse_cost/` (`run.sh`,
   `check.py`, `timing_build.patch`, `results.txt`).
+  *Mac, 2026-11-16 (evening):* **the user chose the static `subspaceHamiltonian` (`1d78ef13`); the reuse variant was
+  dropped** and the working tree is clean (the variant survives as `stale_aug/reuse_applyHamiltonian.patch`). Extra
+  cost of the reuse variant against one ElecMinimize iteration, both from one process (full minimization, then
+  `dump End AO`, 8 threads; `reuse_cost/iter_cost.sh`, `iter_cost.py`, `iter_cost.txt`): MnO2 slab +0.14 s = 4.9% of a
+  2.85 s iteration; NH4+ in CANDLE +0.024 s = 0.2% of an 11.2 s solvated iteration (1.3% of a 1.8 s vacuum one);
+  fcc Ni +U 11%, Ni vector-spin 7%, Si mGGA 4% (all ≤14 ms). Paid once per dump, not per iteration.
 - Band-sum convergence (Mac, 2026-11-13; `lowdin_dumps_tests/band_convergence/`: `run.sh`, `convergence.py`,
   `summary.txt`, `convergence.png`). With elec-n-bands = nbasis (start from `wavefunction read` of C = I/sqrt(detR);
   LCAO and the bandwidth-limited random start are numerically singular there), ortho band sums equal I and
