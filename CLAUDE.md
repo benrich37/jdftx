@@ -418,6 +418,42 @@ Running:
   with 4x H100 (feature `H100`, QoS `part-ai`). The user's only association is `chm260113-gpu` on partition `gpu`, so H100
   access is unconfirmed.
 
+### Alpine (CU Boulder CURC)
+
+Set up 2026-11-19 by a Mac session driving Alpine over SSH. Everything here was seen on Alpine that day. Handoff with job
+ids and next steps: `/projects/beri9208/jdftx_builds/HANDOFF.md` (copy on the Mac: `~/Desktop/jdftx_hold/alpine_builds/`).
+- **Access:** no SSH-key login (IdentiKey password + Duo). From the Mac, `ssh alpine` with ControlMaster: the user logs in
+  once and later commands reuse the connection. The Alpine clone uses https with no credentials, so **push claude-md
+  edits from another clone** (e.g. the Mac's `~/vs/jdftx`). CURC forbids VS Code / long processes on login nodes.
+- **Source:** `/home/beri9208/Public/jdftx`: blobless clone of the fork, `proj_efficiency_v2` at `b1829b81`, claude-md
+  setup done. `/home` has a 2 GB quota (~143 MB free after the clone), so builds and runs go in `/projects/beri9208` (250 GB).
+- **Builds** in `/projects/beri9208/jdftx_builds/`: driver `build-versioned.sh <cpu|gpu|gpu-managed> <commit> [tag]`
+  (refuses an existing dir or a dirty/mismatched source; writes `run_env.sh`, `BUILD_INFO`, `STATUS=unverified`), tests
+  `test-build.sh <build> [gpu]` (ctest), Slurm logs in `logs/`. Builds: `build-{cpu,gpu,gpu-managed}-v2-b1829b81`.
+- **Stack** (modules load only on compute/compile nodes, not login nodes): `cmake/3.27.7 gcc/11.2.0 openmpi/4.1.1
+  mkl/2022.0.2 gsl/2.7`, plus `cuda/12.1.1` (the newest CUDA module; the managed flavor needs 12.x anyway). Release, MKL
+  sequential (`ThreadedBLAS=no`) for BLAS/LAPACK/FFT, MKL ScaLAPACK, profiling on, no LibXC, no HDF5. GPU:
+  `CMAKE_CUDA_ARCHITECTURES="80-real;89-real;90"` (A100, L40, H200; compute_90 PTX for the sm_120 RTX Pro 6000 nodes,
+  untested), cuSolver, pinned host memory, CudaAwareMPI off; gpu-managed adds `CudaManagedMemory=yes`.
+- **Gotchas:** (1) `openmpi/4.1.1` is **not CUDA-aware** (`mpi_built_with_cuda_support:value:false`), so `CudaAwareMPI` must
+  stay off. The old `/projects/musgravc/data/beri9208/jdftx_compile/build-gpu3` had it on, and the old builds there also
+  had an empty `CMAKE_BUILD_TYPE` (-O0). (2) `libxc/5.2.2` under `gcc/11.2.0` points `CURC_LIBXC_ROOT` at a nonexistent
+  `.../gcc/11.2.0`. (3) The CMakeLists sets `CMAKE_CUDA_FLAGS` from `CUDA_NVCC_FLAGS`, so extra nvcc flags go in
+  `CUDA_NVCC_FLAGS`; `CPATH` has only MKL's include dir, so GSL's is passed there. (4) GPU partitions reject jobs without `--nodes`.
+- **Slurm:** account `ucb-general`. Compile `-p acompile --qos=compile` (8 CPUs per user in total, 12 h, EPYC 7543). CPU
+  test `-p acpu --qos=cpu-testing` (16 CPUs, 1 h, 1 running job). GPU test `-p aa100 --qos=gpu-testing -N 1
+  --gres=gpu:a100_3g.20gb:1` (a 20 GB MIG slice, 1 h). MPI launch `srun --mpi=pmi2` (MpiDefault none; OpenMPI built with
+  Slurm PMI). `acpu` mixes Milan and Genoa nodes, so no `CompileNative`.
+- **Results (2026-11-19): all three builds pass ctest 11/11 (47 checks)**; each build's `STATUS` says `status=tested`
+  with the job id. All are `-O3 -DNDEBUG`, with 0 `not found` in `ldd` from `env -i` and their own `libjdftx*.so`.
+  - CPU: `make -j8` 67 s on acompile. ctest at 4 ranks x 4 threads (`srun --mpi=pmi2`, EPYC 7543) took 428 s (job 36008737).
+    The `checkpoint` test's direct (singleton) `jdftx` start inside a batch job works.
+  - GPU / gpu-managed: `make -j16` 123 s / 157 s on an `acpu` node (no GPU needed). `cuobjdump`: SASS sm_80, sm_89, sm_90 plus
+    compute_90 PTX. ctest with one process on an A100 MIG 3g.20gb slice took 188 s / 236 s (jobs 36008744 / 36008745);
+    `gpuInit: Found compatible cuda device 0 'NVIDIA A100-PCIE-40GB MIG 3g.20gb'`. Managed memory works on a MIG slice.
+  - Not tested yet: GPU at np>1 (CudaAwareMPI is off, so the MPI race above cannot occur), full GPUs, L40/H200/RTX Pro 6000
+    nodes, and any production-size system or timing.
+
 ### mbook2019 (Ben's home CPU server: 2019 MacBook Pro 16", Ubuntu 26.04)
 
 Verified 2026-11-05 by the Claude session on that machine; its system log is `~/SERVER_NOTES.md` there. Intel i9-9880H (8 cores /
