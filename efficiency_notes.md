@@ -763,3 +763,51 @@ Same `~/software/jdftx-fork/bench/mol/run_mol.sh` (the env is inherited by `sbat
 `CASE=gly-solv GLIBC_TUNABLES=glibc.malloc.hugetlb=1:glibc.malloc.mmap_threshold=67108864 sbatch -n 1 -c 8 --mem=24G
 --hint=nomultithread run_mol.sh cli <tag>`; runs `gly-{gas,solv}_cli_c8_{r3,hugetlb1,hugetlb1mt}`, `summarize.py`.
 Both job templates on mbook2019 (`~/slurm-tests/jdftx-job-template.sh`, `pyjdftx-job-template.sh`) now export it.
+
+## SMAL (ex-mbook2019) on a production MNC slab vs 4 A100s (2026-11-19)
+
+Run from the research repo (NO3_ads_gen project), not a build A/B: one production calculation on SMAL's whole node with its
+production build `b1829b81` (proj_efficiency_v2, has the D3 C6 fix), compared with the same calculation's original run on
+Perlmutter (4 A100-40GB, build `build-gpu-4-23-26`, 2026-05-21).
+
+### Setup
+
+- **System:** YN4-i clean surface (Y in N-doped graphene), 49 atoms (13 free), PBE-D3 zero damping, GBRV 20/100 Ha,
+  kpoint-folding 3 3 1 with `symmetries none` (9 k-points x 2 spins = 18 states), nBands 125, nbasis ~87k, fft box
+  108x108x196 (392 in z for the embedded Slab truncation), Fermi 0.001, LinearPCM CANDLE with 0.1 M NaF, `target-mu` (0 V).
+- **SMAL run:** `-n 8 -c 1 --exclusive --mem=0` (busiest process holds 3 states), `OPENBLAS_NUM_THREADS=1`, glibc hugetlb
+  tunable, via opt4.py. Restart from the old run's final geometry, fresh LCAO (no wfns kept). The Perlmutter run started from
+  the unrelaxed structure, so per-iteration times compare directly and whole-run times do not.
+- SMAL during the run: 8 x 100% CPU, 2.7 GHz mean under the 45 W cap, 86 °C, 10.9 GB total RSS. With no job running it showed
+  ~11% system CPU from kworkers (`pm`, `usb_hub_wq` workqueues, ~800k context switches/s); not investigated.
+
+### Results
+
+| | Perlmutter 4 A100 | SMAL 8 x 1 | ratio |
+|---|---|---|---|
+| start to LCAO iter 1 | 8.3 s | 385 s | 46x |
+| LCAO iteration (median) | 1.15 s | 152 s | 132x |
+| `Initialization completed` | 18.4 s | 2174 s | 118x |
+| electronic iteration (median, vacuum and solvated) | 1.25 s | 122 s | 97x |
+| whole run | 0.145 h (7 ionic steps, 187 timed elec. iters) | 4.46 h (0 ionic steps, 70) | |
+
+- **Where SMAL's 36 min of initialization went:** ~6.5 min to LCAO iteration 1, iterations 1-5 at ~2.7 min each, then
+  ~19 min from LCAO iteration 5 (t = 1030 s) to `Initialization completed` (t = 2174 s, fluid setup included). Most of
+  that went to two rounds of three line-search trials that failed at the roundoff limit ("Step increased G by 3e-5 ...
+  8e-8", then "Probably at roundoff error limit"), for a total gain of 4e-7 Ha. Perlmutter's LCAO had one such round
+  (~4 of its 18 s). On a CPU each failed round costs several minutes per calculation. A looser LCAO stop (`lcao-params`)
+  could cut it; not tested.
+- Energies agree across builds and hardware: the fixed-D3 G at the old geometry equals old G + the D3-only correction to
+  0.6 µeV (research repo, `NO3_ads_gen/anl/smal_surf_benchmark/`).
+
+### Conclusions (SMAL)
+
+- A 49-atom solvated slab is ~100x slower on SMAL's whole node than on one Perlmutter GPU node: fine for a few slabs, not for
+  batches. Molecules remain SMAL's use.
+- Other layouts (4x2, 6x1) were not timed. With 18 states they could differ by ~10%.
+
+### Reproducing (SMAL)
+
+Calc dir on SMAL `~/calcs/NO3_ads_gen/PBED30_GBRV_20Ha_D3fix/surfs/YN4-i/0V` (wfns kept there); set-up script
+`NO3_ads_gen/gen/d3_fix/sub_d3fix_smal.py` and analysis notebook `NO3_ads_gen/anl/smal_surf_benchmark/smal_surf_benchmark.ipynb`
+in the research repo. Original Perlmutter run: `PBED30_GBRV_20Ha/surfs/YN4-i/0V/ion_opt/jdftx_run/out` on the user's drive.
