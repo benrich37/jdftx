@@ -811,3 +811,60 @@ Perlmutter (4 A100-40GB, build `build-gpu-4-23-26`, 2026-05-21).
 Calc dir on SMAL `~/calcs/NO3_ads_gen/PBED30_GBRV_20Ha_D3fix/surfs/YN4-i/0V` (wfns kept there); set-up script
 `NO3_ads_gen/gen/d3_fix/sub_d3fix_smal.py` and analysis notebook `NO3_ads_gen/anl/smal_surf_benchmark/smal_surf_benchmark.ipynb`
 in the research repo. Original Perlmutter run: `PBED30_GBRV_20Ha/surfs/YN4-i/0V/ion_opt/jdftx_run/out` on the user's drive.
+
+## Alpine H200 MIG slice (`h200_2g.35gb`) on a production MNC slab vs A100 nodes (2026-11-20)
+
+Run from the research repo (NO3_ads_gen project), not a build A/B: one production calculation as **one process on one
+H200 NVL MIG slice** (2g.35gb: 32 SMs, 32.5 GiB) of CU Boulder's Alpine, build `b1829b81` (proj_efficiency_v2, has the D3 C6
+fix; built with `CMAKE_CUDA_ARCHITECTURES=80-real;89-real;90`, CUDA 12.1.1, `/projects/beri9208/jdftx_builds/build-gpu-v2-b1829b81`).
+Compared with earlier runs of the same calculation (old D3) on Perlmutter (4 A100, `19647f2f`) and Anvil (2 A100-40GB,
+`52548a96`). Before it, the ctest suite passed 11/11 on the same slice type (192 s; 188 s on an A100 3g.20gb slice).
+
+### Setup
+
+- **System:** MoN4-i with three OH (O, O, O, H, H, H on Mo), 55 atoms, PBE-D3 zero damping, GBRV 20/100 Ha, kpoint-folding
+  3 3 1, `symmetries none` (18 states), nBands 139, nbasis ~87k, fft box 108x108x196 (392 in z for the embedded Slab
+  truncation), Fermi 0.001, LinearPCM CANDLE 0.1 M NaF, `target-mu` (-1 V vs SHE). Native `ionic-minimize`.
+- **Alpine run:** `srun --mpi=pmi2 -n 1 -c 8`, `JDFTX_CACHE_SIZE=28000`, JDFTx called directly (no opt4.py). Restart from
+  the Anvil run's final geometry, fresh LCAO (no wfns). The A100 runs started from other geometries: per-iteration times
+  compare directly, whole runs roughly.
+
+### Results
+
+| | Perlmutter 4 A100-40GB | Perlmutter 4 A100-80GB | Anvil 2 A100-40GB | Alpine 1 slice |
+|---|---|---|---|---|
+| `Initialization completed` | 29.8 s | 29.0 s | 84.6 s | 118.5 s |
+| LCAO iteration (median) | 1.22 s | 1.20 s | 1.82 s | 5.72 s |
+| electronic iteration (median) | 1.55 s | 1.46 s | 2.27 s | 4.81 s |
+| slice / this, electronic | 3.1x | 3.3x | 2.1x | 1 |
+| MEMUSAGE Total (process 0) | | 4.28 GiB (5 states) | 7.94 GiB (9 states) | 14.45 GiB (18 states) |
+
+- Whole Alpine run 12.3 min: LCAO, 80 electronic iterations, 1 ionic step (|grad|_K 1.04e-4 -> 7.7e-5).
+- **Memory:** nvidia-smi's MIG table showed the slice at 12.0 GiB during LCAO, 22.6 GiB right after, and a peak of 24.2 GiB
+  (fluid stage onward); the rest above the 14.45 GiB tally is the allocation cache. One process holding 18 states fits a
+  2g.35gb slice with ~8 GiB to spare. (`nvidia-smi -q -d MEMORY` and the GPU rows report the whole card, other users' slices
+  included; read the MIG table.)
+- **Profile (built-in profiler, 737 s run):** `Idag_DiagV_I` 234 s, `diagouterI` 208 s (60% together, FFT-bound), `Y*M`
+  63 s, `augmentDensityGridGrad` 41 s, `EnlAndGrad` 27 s, `Y1^Y2` 23 s, `EdensityAndVscloc` 20 s, `matrix::diagonalize`
+  14 s; D3 0.1 s. The slice's share of the H200's memory bandwidth (~1.2 TB/s for 2 of 8 memory slices, vs 1.56 TB/s per
+  A100-40GB) fits the 3x gap to 4 A100s with ~13x fewer SMs: this slab does not scale over 4 GPUs.
+- LCAO again ended in a roundoff tail: after iteration 13 (t = 88.5 s) it gained 4e-8 Ha in one more iteration ("Step
+  increased G by 7e-7"), then a round of three failed trials (1.7e-8 ... 1.2e-10) and "Probably at roundoff error limit".
+  That tail plus the fluid setup is the last 30 s of the 118.5 s initialization. Same pattern as SMAL's.
+- Energies agree across builds and hardware: the fixed-D3 G at the old geometry equals the Anvil run's final G + the
+  D3-only correction to 1.4 µeV.
+
+### Conclusions (Alpine slice)
+
+- A 2g.35gb slice runs these small slabs at ~1/3 of a Perlmutter GPU node's speed; Alpine's per-user limit of 6 such slices
+  gives ~2x a node's throughput when slices are free. Dense k-mesh single points (~4x the states) do not fit one slice, and
+  multi-slice jobs were refused by the scheduler.
+- Untested: `h200_3g.71gb` slices (60 SMs, ~2x the bandwidth), and `JDFTX_CACHE_SIZE` lower than 28000 (the tally suggests
+  ~16000 would do).
+
+### Reproducing (Alpine slice)
+
+Calc dir on Alpine `/scratch/alpine/beri9208/NO3_ads_gen/PBED30_GBRV_20Ha_D3fix/ads/MoN4-i/OH_OH_OH/n1p0V/from_in_ecl_sym_with_all`
+(job 36059791; wfns kept there, scratch is purged after 90 days); set-up script `NO3_ads_gen/gen/d3_fix/sub_d3fix_alpine.py`
+and notebook `NO3_ads_gen/anl/alpine_mig_benchmark/alpine_mig_benchmark.ipynb` in the research repo. Build handoff:
+`~/Desktop/jdftx_hold/alpine_builds/HANDOFF.md`.
