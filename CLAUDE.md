@@ -453,6 +453,22 @@ ids and next steps: `/projects/beri9208/jdftx_builds/HANDOFF.md` (copy on the Ma
     `gpuInit: Found compatible cuda device 0 'NVIDIA A100-PCIE-40GB MIG 3g.20gb'`. Managed memory works on a MIG slice.
   - Not tested yet: GPU at np>1 (CudaAwareMPI is off, so the MPI race above cannot occur), full GPUs, L40/H200/RTX Pro 6000
     nodes, and any production-size system or timing.
+  - Alpine, 2026-11-20: the GPU build also passes ctest 11/11 on an H200 MIG slice (`-p ah200 --gres=gpu:h200_2g.35gb:1`,
+    job 36059789, 192 s, `NVIDIA H200 NVL MIG 2g.35gb`), and a production NO3_ads_gen MNC slab ran on that slice
+    (timing and memory: `efficiency_notes.md` on `efficiency_testing`, "Alpine H200 MIG slice"). Read a slice's memory
+    from nvidia-smi's MIG table; `nvidia-smi -q -d MEMORY` and the GPU rows count the whole card.
+- **CPU build FFTs are single-threaded** (Alpine, 2026-11-21). With MKL sequential (`ThreadedBLAS=no`, the stack above),
+  MKL provides the FFTs (`MKL_PROVIDES_FFT`) and ignores `fftw_plan_with_nthreads` (`core/GridInfo.cpp:292`), so every
+  whole-grid FFT runs on one thread; only JDFTx's own per-band threading is parallel. Seen on the solvated H2O of
+  NO3_ads_gen (180^3 box, 2 ranks x 8 threads, `acpu`): 7.3 s per vacuum electronic step, ~100 s per step with the
+  LinearPCM fluid on, ~30% CPU use; the same run takes 55 s in total on an A100 MIG slice. JDFTx's default
+  `ThreadedBLAS=ON` (mkl_gnu_thread) should fix it (not yet rebuilt). GPU builds use cuFFT and are unaffected.
+- **perlStuff on Alpine** (2026-11-21): `~/perlStuff` at perlStuff master `1fb5533`, build channels in `~/jdftx_prod`
+  like Perlmutter's (`default`, `managed`, `cpu` -> the three b1829b81 builds; `adopt` maps the channel paths), so
+  `get_exe_cmd` resolves the build at job start and launches `. <build>/run_env.sh && srun <exe>`. Job scripts must
+  export `SLURM_MPI_TYPE=pmi2` and `SRUN_CPUS_PER_TASK=$SLURM_CPUS_PER_TASK`, because that plain `srun` gets neither
+  from Alpine's Slurm. `opt4.py` end-to-end on the GPU channel reproduced the Perlmutter H2O energy (+5.2 µeV, the D3
+  C6 fix) and its DDEC6 charges (6e-6 e). Details: the handoff, section "perlStuff on Alpine".
 
 ### mbook2019 (Ben's home CPU server: 2019 MacBook Pro 16", Ubuntu 26.04)
 
