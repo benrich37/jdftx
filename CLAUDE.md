@@ -460,9 +460,16 @@ ids and next steps: `/projects/beri9208/jdftx_builds/HANDOFF.md` (copy on the Ma
 - **CPU build FFTs are single-threaded** (Alpine, 2026-11-21). With MKL sequential (`ThreadedBLAS=no`, the stack above),
   MKL provides the FFTs (`MKL_PROVIDES_FFT`) and ignores `fftw_plan_with_nthreads` (`core/GridInfo.cpp:292`), so every
   whole-grid FFT runs on one thread; only JDFTx's own per-band threading is parallel. Seen on the solvated H2O of
-  NO3_ads_gen (180^3 box, 2 ranks x 8 threads, `acpu`): 7.3 s per vacuum electronic step, ~100 s per step with the
-  LinearPCM fluid on, ~30% CPU use; the same run takes 55 s in total on an A100 MIG slice. JDFTx's default
-  `ThreadedBLAS=ON` (mkl_gnu_thread) should fix it (not yet rebuilt). GPU builds use cuFFT and are unaffected.
+  NO3_ads_gen (180^3 box, 2 ranks x 8 threads, `acpu`): 7.3 s per vacuum electronic step, ~75 s per step with the
+  LinearPCM fluid on (steps 1-12; first written as ~100 s), ~30% CPU use; the same run takes 55 s in total on an A100
+  MIG slice. GPU builds use cuFFT and are unaffected.
+  - Fixed the same day: `build-cpu-v2thr-b1829b81` (`ThreadedBLAS=yes`, mkl_gnu_thread; `build-versioned.sh` takes
+    `THREADED_BLAS=yes`) is on Alpine's `cpu` channel. **Set `OMP_WAIT_POLICY=PASSIVE`** with threaded MKL (the
+    driver writes it into `run_env.sh`): with libgomp's default spin-waiting, idle MKL threads take the cores JDFTx's
+    own threads need next. ctest, same node, 4 ranks x 4 threads: sequential 427 s, threaded + spinning 496 s (small
+    tests +26-51%), threaded + passive 387 s. The H2O above: 18.4 min spinning, 18.0 min passive (vacuum step 5.2 s,
+    solvated ~45 s, 55% CPU use), identical energies. JDFTx sets MKL to 1 thread inside its own threaded loops
+    (`core/Thread.cpp:51-58`). Other machines with MKL builds may have the same single-threaded-FFT problem; not checked.
 - **perlStuff on Alpine** (2026-11-21): `~/perlStuff` at perlStuff master `1fb5533`, build channels in `~/jdftx_prod`
   like Perlmutter's (`default`, `managed`, `cpu` -> the three b1829b81 builds; `adopt` maps the channel paths), so
   `get_exe_cmd` resolves the build at job start and launches `. <build>/run_env.sh && srun <exe>`. Job scripts must
