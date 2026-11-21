@@ -868,3 +868,40 @@ Calc dir on Alpine `/scratch/alpine/beri9208/NO3_ads_gen/PBED30_GBRV_20Ha_D3fix/
 (job 36059791; wfns kept there, scratch is purged after 90 days); set-up script `NO3_ads_gen/gen/d3_fix/sub_d3fix_alpine.py`
 and notebook `NO3_ads_gen/anl/alpine_mig_benchmark/alpine_mig_benchmark.ipynb` in the research repo. Build handoff:
 `~/Desktop/jdftx_hold/alpine_builds/HANDOFF.md`.
+
+## Alpine CPU: sequential vs threaded MKL, and `OMP_WAIT_POLICY=PASSIVE` (2026-11-21)
+
+**Machine:** Alpine (CURC) `acpu`, AMD EPYC 7543, all runs on node `c3cpu-a2-u3-4`. Commit `b1829b81`
+(proj_efficiency_v2), gcc 11.2 + OpenMPI 4.1.1 + MKL 2022.0.2, Release, MKL provides BLAS/LAPACK/FFT.
+
+**Problem.** With `ThreadedBLAS=no` (mkl_sequential), MKL's FFTW interface supplies the FFTs (`MKL_PROVIDES_FFT`) and
+ignores `fftw_plan_with_nthreads(nThreads)` (`core/GridInfo.cpp:292`), so each whole-grid FFT (fluid solve, density
+and potential work) runs on one thread; only JDFTx's own per-band threading is parallel. `ThreadedBLAS=yes`
+(mkl_gnu_thread, the upstream default) threads them. JDFTx sets MKL to 1 thread inside its own threaded loops
+(`core/Thread.cpp:51-58`), but libgomp's idle threads spin by default after each MKL call and take the cores JDFTx's
+pthreads need next; `OMP_WAIT_POLICY=PASSIVE` stops that.
+
+| Run | sequential MKL | threaded MKL, default (spin) | threaded MKL, `OMP_WAIT_POLICY=PASSIVE` |
+|---|---|---|---|
+| ctest suite, 4 ranks x 4 threads, total | 427 s | 496 s | 387 s |
+| latticeOpt / metalSurface / spinOrbit | 40.1 / 64.3 / 22.0 s | 60.5 / 89.8 / 28.9 s | 43.7 / 67.5 / 22.2 s |
+| ionSolvation / graphene | 65.0 / 28.6 s | 62.5 / 26.5 s | 42.9 / 26.7 s |
+| Solvated H2O (NO3_ads_gen `mols/H2O`, 180^3 box, LinearPCM, 2 states), 2 ranks x 8 threads, opt4.py | >30 min (killed) | 18.4 min | 18.0 min |
+| ... vacuum electronic step | 7.3 s | 5.2 s | 5.0 s |
+| ... solvated electronic step (steps 1-12) | ~75 s | ~45 s | ~45 s |
+| ... CPU use (TotalCPU / cores x wall) | 30% | 55% | 51% |
+
+Energies of the two threaded H2O runs are identical to the last digit (F = -17.280961214413 Ha; an A100 run of the
+same restart gives -17.280961214545). Profile of the threaded H2O (PASSIVE; spin within 5%): `EdensityAndVscloc`
+880 s of 1078 s (90 calls, ~10 s each: the fluid solve and grid work), `ExCorrTotal` 58 s, `augmentDensityGrid`
+49 s, `Idag_DiagV_I` 44 s, `augmentDensityGridGrad` 32 s, `ExCorrCommunication` 23 s. So even threaded, ~80% of this
+small-molecule run is whole-grid work, and half the allocated cores sit idle. Each figure is from one run.
+
+**Conclusion.** On MKL CPU builds, use `ThreadedBLAS=yes` together with `OMP_WAIT_POLICY=PASSIVE`. On Alpine the
+driver `build-versioned.sh` takes `THREADED_BLAS=yes` and then writes the export into `run_env.sh`;
+`build-cpu-v2thr-b1829b81` is on Alpine's `cpu` channel since 2026-11-21. Not measured: a production slab (many
+states, one rank per state, few threads each), where per-band threading already fills the cores and the gain should
+be smaller. Other MKL CPU builds (e.g. elsewhere with `ThreadedBLAS=no`) may have the same single-threaded FFTs; not checked.
+Logs: `~/Desktop/jdftx_hold/alpine_builds/logs/` (`jdftx-test-cpu-36008737`, `test-cpu-thr-36105076`,
+`test-cpu-thr-passive-36105480`), H2O outputs `~/Desktop/jdftx_hold/alpine_builds/perlstuff_tests/results/`
+(`H2O_cpu`, `H2O_cpu_thr`, `H2O_cpu_thr_passive`), handoff `~/Desktop/jdftx_hold/alpine_builds/HANDOFF.md`.
