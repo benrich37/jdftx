@@ -932,7 +932,10 @@ convergence, no dumps), 9 ranks x 2 threads, each set of builds back to back on 
 - MKL's FFTs are nonetheless not the problem: FFTW 3.3.10 built with AVX2 and threads (Alpine's fftw modules lack
   `libfftw3_threads`) ran as fast (F1 vs M1), energy equal to 1e-12 Ha.
 - OpenBLAS + FFTW (SMAL's combination; JDFTx then threads zgemm itself, `OPENBLAS_NUM_THREADS=1`) is 2.9x slower, mostly
-  zgemm and `EdensityAndVscloc`; energy 8e-9 Ha from M1's. Not investigated further.
+  zgemm and `EdensityAndVscloc`; energy 8e-9 Ha from M1's. Not investigated further. (2026-11-22, independent review:
+  this set-up is broken rather than OpenBLAS slow. Small dense-matrix calls blew up, `matrix::diagonalize` 241 vs
+  0.5 s and `EnlAndGrad` 91 vs 0.2 s, while SMAL's OpenBLAS build costs about as much per core as MKL here. A likely
+  cause is Alpine's single-threaded `openblas/0.3.20` module being called from JDFTx's threads.)
 - `-march=znver3` for JDFTx's own code: no gain beyond noise (C between A and A2); `CompileNative` is off by default.
 - Noise: A rerun last in the same job (A2) was 25% slower. Single comparisons below ~20% mean nothing on shared nodes.
 
