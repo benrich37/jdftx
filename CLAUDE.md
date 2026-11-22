@@ -476,6 +476,18 @@ ids and next steps: `/projects/beri9208/jdftx_builds/HANDOFF.md` (copy on the Ma
   export `SLURM_MPI_TYPE=pmi2` and `SRUN_CPUS_PER_TASK=$SLURM_CPUS_PER_TASK`, because that plain `srun` gets neither
   from Alpine's Slurm. `opt4.py` end-to-end on the GPU channel reproduced the Perlmutter H2O energy (+5.2 µeV, the D3
   C6 fix) and its DDEC6 charges (6e-6 e). Details: the handoff, section "perlStuff on Alpine".
+- **MKL on Alpine's AMD CPUs, and what (not) to do about it** (Alpine, 2026-11-21, EPYC 7713P, short copy of a
+  NO3_ads_gen MNC slab: 18 states, 125 bands, fftbox 108 x 108 x 196, CANDLE; JDFTx PROFILER totals; `efficiency_notes.md`
+  "Alpine CPU: MKL on AMD"). `MKL_VERBOSE=1` shows MKL 2022.0.2 takes its generic "Intel(R) Architecture processors"
+  path, not AVX2, on AMD. **Do not force the AVX2 path** with an LD_PRELOADed `mkl_serv_intel_cpu_true() { return 1; }`:
+  the run died in the first LCAO diagonalize ("Relative hermiticity error of 1.06e-03"), i.e. wrong matrix products.
+  Nothing else beat the threaded-MKL build either: FFTW 3.3.10 (AVX2, threads) for the FFTs with MKL BLAS (`ForceFFTW`)
+  ran equally fast (691 vs 690 s, energy within 1e-12 Ha), Zen OpenBLAS 0.3.20 + FFTW was 2.9x slower (zgemm-heavy
+  `Y1^Y2` 124 vs 27 s), and `-march=znver3` gave no measurable gain (Release flags are plain `-O3`: `CompileNative` is off).
+  Same-job reruns of one build drifted 25% on shared nodes, so do not trust single A/B runs below ~20%.
+- **Layout for an MNC slab on Alpine CPU** (2026-11-21, opt4.py, 11 layouts, NO3_ads_gen
+  `anl/alpine_cpu_layouts`): 9 ranks x 2 threads. All layouts of 9-18 cores with <= 2 threads per rank cost the same
+  core-hours within noise; 4+ threads per rank or 18 x 2 cost 30-90% more (grid and fluid work repeats in every rank).
 
 ### mbook2019 (Ben's home CPU server: 2019 MacBook Pro 16", Ubuntu 26.04)
 
