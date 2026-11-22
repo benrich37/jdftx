@@ -483,11 +483,14 @@ ids and next steps: `/projects/beri9208/jdftx_builds/HANDOFF.md` (copy on the Ma
   the run died in the first LCAO diagonalize ("Relative hermiticity error of 1.06e-03"), i.e. wrong matrix products.
   Nothing else beat the threaded-MKL build either: FFTW 3.3.10 (AVX2, threads) for the FFTs with MKL BLAS (`ForceFFTW`)
   ran equally fast (691 vs 690 s, energy within 1e-12 Ha), Zen OpenBLAS 0.3.20 + FFTW was 2.9x slower (zgemm-heavy
-  `Y1^Y2` 124 vs 27 s), and `-march=znver3` gave no measurable gain (Release flags are plain `-O3`: `CompileNative` is off).
+  `Y1^Y2` 124 vs 27 s; but small matrix calls blew up, `matrix::diagonalize` 241 vs 0.5 s, so that set-up was broken,
+  not a verdict on OpenBLAS: SMAL's OpenBLAS build is as cheap per core), and `-march=znver3` gave no measurable gain (Release flags are plain `-O3`: `CompileNative` is off).
   Same-job reruns of one build drifted 25% on shared nodes, so do not trust single A/B runs below ~20%.
 - **Layout for an MNC slab on Alpine CPU** (2026-11-21, opt4.py, 11 layouts, NO3_ads_gen
   `anl/alpine_cpu_layouts`): 9 ranks x 2 threads. All layouts of 9-18 cores with <= 2 threads per rank cost the same
   core-hours within noise; 4+ threads per rank or 18 x 2 cost 30-90% more (grid and fluid work repeats in every rank).
+  Job settings (2026-11-22): `-t 24:00:00` (a killed opt restarts from LCAO) and, for one-node jobs,
+  `OMPI_MCA_pml=ob1 OMPI_MCA_btl=self,vader` (the default UCX pml warned "VM_UNMAP ... may cause data corruption").
 
 ### mbook2019 (Ben's home CPU server: 2019 MacBook Pro 16", Ubuntu 26.04)
 
