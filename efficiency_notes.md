@@ -905,3 +905,55 @@ be smaller. Other MKL CPU builds (e.g. elsewhere with `ThreadedBLAS=no`) may hav
 Logs: `~/Desktop/jdftx_hold/alpine_builds/logs/` (`jdftx-test-cpu-36008737`, `test-cpu-thr-36105076`,
 `test-cpu-thr-passive-36105480`), H2O outputs `~/Desktop/jdftx_hold/alpine_builds/perlstuff_tests/results/`
 (`H2O_cpu`, `H2O_cpu_thr`, `H2O_cpu_thr_passive`), handoff `~/Desktop/jdftx_hold/alpine_builds/HANDOFF.md`.
+
+## Alpine CPU: MKL on AMD, FFTW, OpenBLAS, `-march=znver3`, and the rank x thread layout of an MNC slab (2026-11-21)
+
+**Machine:** Alpine (CURC) `acpu`, AMD EPYC 7713/7713P (64 cores, Zen 3), shared nodes (20-57 other jobs per run).
+Commit `b1829b81`, gcc 11.2 + OpenMPI 4.1.1. System: the fixed-D3 rerun of NO3_ads_gen `surfs/HgN4-i/n1p0V` (3x3x1
+spin-polarized MN4 graphene slab, 18 states, 125 bands, fftbox 108 x 108 x 196, CANDLE at fixed mu, LCAO start).
+
+**Builds (A/B runs).** A short copy of that input (6 or 3 LCAO, vacuum and solvated iterations, no empty-state
+convergence, no dumps), 9 ranks x 2 threads, each set of builds back to back on one node. Rank 0 PROFILER totals [s]:
+
+| Function | A: threaded MKL (`cpu` channel) | C: same, `-march=znver3` | A2: A rerun last | M1: threaded MKL | F1: MKL + FFTW 3.3.10 FFTs | O1: Zen OpenBLAS 0.3.20 + FFTW |
+|---|---|---|---|---|---|---|
+| iterations (LCAO / vac / solv) | 6 / 6 / 6 | 6 / 6 / 6 | 6 / 6 / 6 | 3 / 3 / 3 | 3 / 3 / 3 | 3 / 3 / 3 |
+| `EdensityAndVscloc` | 259 | 285 | 345 | 143 | 149 | 404 |
+| `Idag_DiagV_I` | 224 | 246 | 330 | 140 | 133 | 151 |
+| `diagouterI` | 200 | 210 | 296 | 116 | 111 | 113 |
+| `augmentDensityGrid` (+`Grad`) | 161 (+81) | 142 (+69) | 139 (+83) | 64 (+46) | 65 (+47) | 87 (+48) |
+| `Y*M` / `Y1^Y2` (zgemm) | 85 / 44 | 90 / 45 | 117 / 50 | 49 / 27 | 49 / 26 | 111 / 124 |
+| whole run | 1226 | 1256 | 1540 | 690 | 691 | 1987 |
+
+- `MKL_VERBOSE=1`: MKL 2022.0.2 runs its generic "Intel(R) Architecture processors" path on these AMD CPUs.
+  LD_PRELOADing `mkl_serv_intel_cpu_true() { return 1; }` switches it to "Intel(R) AVX2", **and gives wrong results**:
+  both such runs (the A and C builds) died in the first LCAO diagonalize with "Relative hermiticity error of
+  1.062574e-03". Do not use that trick with this MKL.
+- MKL's FFTs are nonetheless not the problem: FFTW 3.3.10 built with AVX2 and threads (Alpine's fftw modules lack
+  `libfftw3_threads`) ran as fast (F1 vs M1), energy equal to 1e-12 Ha.
+- OpenBLAS + FFTW (SMAL's combination; JDFTx then threads zgemm itself, `OPENBLAS_NUM_THREADS=1`) is 2.9x slower, mostly
+  zgemm and `EdensityAndVscloc`; energy 8e-9 Ha from M1's. Not investigated further.
+- `-march=znver3` for JDFTx's own code: no gain beyond noise (C between A and A2); `CompileNative` is off by default.
+- Noise: A rerun last in the same job (A2) was 25% slower. Single comparisons below ~20% mean nothing on shared nodes.
+
+**Layouts (full reruns through opt4.py, `cpu` channel build A).** Cost up to ionic step 0 (the work every run does
+identically: 18 LCAO iterations, the vacuum and solvated minimizations at the start geometry, two empty-state passes):
+
+| ranks x threads (cores) | 18x2 (36) | 9x4 (36) | 6x6 (36) | 3x12 (36) | 9x2 (18) | 9x2 repeat | 18x1 (18) | 9x1 (9) | 6x2 (12) | SMAL 4x1 (4, i7-9750H at 45 W) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| solvated step [s] | 60.5 | 40.2 | 40.0 | 41.4 | 57.4 | 66.2 | 65.9 | 142.5 | 97.1 | 236.4 |
+| solvated step [core-s] | 2178 | 1447 | 1441 | 1491 | 1033 | 1192 | 1185 | 1282 | 1165 | 946 |
+| to ionic step 0 [core-h] | 43.3 | 30.5 | 31.9 | 33.9 | 23.0 | 26.5 | 24.9 | 25.9 | 27.4 | 20.1 |
+| to ionic step 0 [h] | 1.20 | 0.85 | 0.89 | 0.94 | 1.28 | 1.47 | 1.38 | 2.88 | 2.28 | 5.02 |
+| peak RSS per rank [GiB] | 2.3 | 3.1 | 3.9 | 6.6 | 2.9 | 2.9 | 2.2 | 2.9 | 3.6 | - |
+
+3x3 (9 cores) was cancelled after 3.5 h, before ionic step 0 (1172 core-s per solvated step, 5.6 GiB per rank).
+`GLIBC_TUNABLES=glibc.malloc.mmap_threshold=67108864` on 9x4: 32.8 core-h (other node), no gain. Every run's energy at
+the start geometry agrees with SMAL's to 4 µeV. Peak RSS per rank ~1.4 GiB + ~0.85 GiB per state held.
+
+**Conclusion.** Keep the threaded-MKL build (`OMP_WAIT_POLICY=PASSIVE`); on Alpine nothing tried beat it. For an MNC
+slab use 9 ranks x 2 threads: at most 2 threads per rank and 9-18 cores all cost the same within noise, and 9x2 is the
+fastest of those. More threads per rank scale poorly, and 18 ranks repeat the grid and fluid work 18 times on one
+node's memory bandwidth. Per core, the 45 W laptop (SMAL, OpenBLAS + FFTW on Intel) is as cheap as Alpine's EPYC.
+Data: notebook `~/vs/research/NO3_ads_gen/anl/alpine_cpu_layouts/alpine_cpu_layouts.ipynb` (runs, sacct, figure),
+A/B runs `~/Desktop/jdftx_hold/alpine_builds/linalg_ab/`, handoff `~/Desktop/jdftx_hold/alpine_builds/HANDOFF.md`.
