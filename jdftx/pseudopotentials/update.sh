@@ -44,12 +44,15 @@ prefixes=$( for file in *_*_*-*.upf; do
 	done | sort | uniq )
 for prefix in $prefixes; do
 	for suffix in "upf" "pulay"; do
+		latestVersion=""
 		for version in "1.0" "1.1"; do
 			fname="${prefix}-${version}.${suffix}"
 			if [ -f $fname ]; then
 				latestVersion="$fname"
 			fi
 		done
-		ln -sf $latestVersion ${prefix}.${suffix}
+		if [ -n "$latestVersion" ]; then
+			ln -sf $latestVersion ${prefix}.${suffix}
+		fi
 	done
 done
